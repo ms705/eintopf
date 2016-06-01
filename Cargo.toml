@@ -1,0 +1,26 @@
+[package]
+name = "eintopf"
+version = "0.0.1"
+description = "Soup from leftovers"
+
+[dependencies]
+ansi_term = "0.7.1"
+criterion = { git = "https://github.com/japaric/criterion.rs.git" }
+docopt = "0.6"
+log = "0.3.6"
+log4rs = { version = "0.4.3", features = ["yaml"] }
+peg = "0.3"
+randomkit = "0.1.0"
+time = "0.1"
+timely = "0.0.14"
+
+[profile.release]
+debug = true
+
+[lib]
+name = "eintopf"
+path = "src/lib.rs"
+
+[[bin]]
+name = "gulaschkanone"
+path = "src/main.rs"
