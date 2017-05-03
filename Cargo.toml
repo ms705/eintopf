@@ -1,26 +1,20 @@
 [package]
 name = "eintopf"
 version = "0.0.1"
-description = "Soup from leftovers"
+description = "Static soup using timely data-flow"
 
 [dependencies]
-ansi_term = "0.7.1"
-criterion = { git = "https://github.com/japaric/criterion.rs.git" }
-docopt = "0.6"
-log = "0.3.6"
-log4rs = { version = "0.4.3", features = ["yaml"] }
-peg = "0.3"
-randomkit = "0.1.0"
+clap = "2.13"
+differential-dataflow = { git = "https://github.com/frankmcsherry/differential-dataflow.git" }
+slog = "1.5.2"
+#slog = { version = "1.5.2", features = ["max_level_trace", "release_max_level_debug"] }
+slog-term = "1.5.0"
 time = "0.1"
-timely = "0.0.14"
+timely = { git = "https://github.com/frankmcsherry/timely-dataflow.git" }
 
 [profile.release]
 debug = true
 
-[lib]
-name = "eintopf"
-path = "src/lib.rs"
-
 [[bin]]
-name = "gulaschkanone"
+name = "eintopf"
 path = "src/main.rs"
