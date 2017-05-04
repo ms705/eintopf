@@ -3,13 +3,22 @@ extern crate clap;
 extern crate differential_dataflow;
 extern crate slog;
 extern crate slog_term;
-extern crate time;
 extern crate timely;
+
+use std::time;
 
 use timely::dataflow::operators::*;
 
 use differential_dataflow::AsCollection;
 use differential_dataflow::operators::*;
+
+const NANOS_PER_SEC: u64 = 1_000_000_000;
+macro_rules! dur_to_ns {
+    ($d:expr) => {{
+        let d = $d;
+        (d.as_secs() * NANOS_PER_SEC + d.subsec_nanos() as u64) as f64
+    }}
+}
 
 fn main() {
     use clap::{Arg, App};
@@ -70,10 +79,10 @@ fn run_dataflow(articles: usize) {
 
     timely::execute(timely::Configuration::Process(1), move |worker| {
         let index = worker.index();
-        let _peers = worker.peers();
+        let peers = worker.peers();
 
         // create a a degree counting differential dataflow
-        let (mut art_in, mut vt_in, _probe) = worker.dataflow(|scope| {
+        let (mut art_in, mut vt_in, probe) = worker.dataflow(|scope| {
             // create articles input
             let (art_in, articles) = scope.new_input();
             // create votes input
@@ -82,40 +91,57 @@ fn run_dataflow(articles: usize) {
             let articles = articles.as_collection();
             let votes = votes.as_collection();
 
+            // simple vote aggregation
             let vc = votes.map(|(aid, _uid)| aid).count_u();
+
+            // compute ArticleWithVoteCount view
             let awvc = articles.join_u(&vc);
 
-            let probe = awvc.inspect(|x| println!("{:?}", x.0)).probe();
+            let probe = awvc.probe();
 
             (art_in, vt_in, probe)
         });
 
-        let timer = ::std::time::Instant::now();
+        let timer = time::Instant::now();
 
         // prepopulate
-        let &art_time = art_in.time();
-        //let &vt_time = vt_in.time();
-        for aid in 0..articles {
-            art_in.send(((aid, format!("Article #{}", aid)), art_time, 1));
-            //vt_in.send(((aid, 0), vt_time, 1));
-
-            worker.step();
-        }
-
-        art_in.advance_to(1);
-        //worker.step_while(|| probe.less_than(art_in.time()));
-
         if index == 0 {
+            let &art_time = art_in.time();
+            let &vt_time = vt_in.time();
+            for aid in 0..articles {
+                // add article
+                art_in.send(((aid, format!("Article #{}", aid)), art_time, 1));
+
+                // vote once for each article as we don't have a convenient left join; this ensures
+                // that all articles are present in awvc
+                vt_in.send(((aid, 0), vt_time, 1));
+            }
+
+            // wait for things to propagate
+            art_in.advance_to(1);
+            vt_in.advance_to(1);
+            worker.step_while(|| probe.less_than(art_in.time()));
+
             println!("Loading finished after {:?}", timer.elapsed());
+
+            // now run the throughput measurement
+            let start = time::Instant::now();
+            let mut count = 0;
+
+            while start.elapsed() < time::Duration::from_millis(60000) {
+                let &t = vt_in.time();
+                vt_in.send(((count % articles, 0u32), t, 1));
+                worker.step();
+                count += 1;
+            }
+            println!("worker {}: {} in {}s => {}",
+                     index,
+                     count,
+                     dur_to_ns!(start.elapsed()) as f64 / NANOS_PER_SEC as f64,
+                     count as f64 / (dur_to_ns!(start.elapsed()) / NANOS_PER_SEC as f64));
         }
-
-        let &t = vt_in.time();
-        vt_in.send(((0, 0u32), t, 1));
-        vt_in.send(((0, 0u32), t, 1));
-        worker.step();
-
     })
             .unwrap();
 
-    println!("Wheeeey, done");
+    println!("Done");
 }
