@@ -75,16 +75,22 @@ fn main() {
             .long("quiet")
             .help("No noisy output while running"))
         .arg(Arg::with_name("batch_kind")
-             .short("b")
-             .long("batch_kind")
-             .takes_value(true)
-             .requires("batch_size")
-             .help("Kind of input batching to use [logical|physical]"))
+            .short("b")
+            .long("batch_kind")
+            .takes_value(true)
+            .requires("batch_size")
+            .help("Kind of input batching to use [logical|physical]"))
         .arg(Arg::with_name("batch_size")
-             .long("batch_size")
-             .takes_value(true)
-             .default_value("100")
-             .help("Input batch size to use [if --batch_kind is set]."))
+            .long("batch_size")
+            .takes_value(true)
+            .default_value("100")
+            .help("Input batch size to use [if --batch_kind is set]."))
+        .arg(Arg::with_name("workers")
+            .short("w")
+            .long("workers")
+            .value_name("N")
+            .default_value("1")
+            .help("Number of worker threads"))
         .get_matches();
 
     let narticles = value_t_or_exit!(args, "narticles", usize);
@@ -101,14 +107,17 @@ fn main() {
         }
     };
     let runtime = value_t_or_exit!(args, "runtime", u64);
+    let workers = value_t_or_exit!(args, "workers", usize);
 
-    run_dataflow(narticles, batch, runtime);
+    run_dataflow(narticles, batch, runtime, workers);
 }
 
-fn run_dataflow(articles: usize, batch: Batch, runtime: u64) {
+fn run_dataflow(articles: usize, batch: Batch, runtime: u64, workers: usize) {
+
+    println!("Using batching configuration {:?}", batch);
 
     // set up the dataflow
-    timely::execute(timely::Configuration::Process(1), move |worker| {
+    timely::execute(timely::Configuration::Process(workers), move |worker| {
         let index = worker.index();
         let peers = worker.peers();
 
@@ -147,56 +156,63 @@ fn run_dataflow(articles: usize, batch: Batch, runtime: u64) {
                 // that all articles are present in awvc
                 vt_in.send(((aid, 0), vt_time, 1));
             }
+        }
 
-            // wait for things to propagate
-            art_in.advance_to(1);
-            vt_in.advance_to(1);
-            worker.step_while(|| probe.less_than(art_in.time()));
+        // we're done adding articles
+        art_in.close();
+        vt_in.advance_to(1);
+        worker.step_while(|| probe.less_than(vt_in.time()));
 
-            println!("Loading finished after {:?}", timer.elapsed());
+        println!("Loading finished after {:?}", timer.elapsed());
 
-            // we're done adding articles
-            art_in.close();
+        // now run the throughput measurement
+        let start = time::Instant::now();
+        let mut count = 1;
+        let mut session = differential_dataflow::input::InputSession::from(&mut vt_in);
 
-            // now run the throughput measurement
-            let start = time::Instant::now();
-            let mut count = 0;
-
-            while start.elapsed() < time::Duration::from_millis(runtime * 1000) {
-                let &t = vt_in.time();
-                vt_in.send(((count % articles, 0u32), t, 1));
-
+        while start.elapsed() < time::Duration::from_millis(runtime * 1000) {
+            if count % peers == index {
                 match batch {
-                    Batch::None => {
-                        vt_in.advance_to(t.inner + 1);
-                        worker.step();
-                    }
-                    Batch::Logical(bs) => {
-                        // logical batching
-                        if count % bs == 0 {
-                            vt_in.advance_to(t.inner + 1);
-                            worker.step();
-                        }
-                    }
-                    Batch::Physical(bs) => {
-                        // physical batching
-                        vt_in.advance_to(t.inner + 1);
-                        if count % bs == 0 {
-                            for _ in 0..bs {
-                                worker.step();
-                            }
-                        }
+                    Batch::Logical(_) => (),
+                    Batch::None |
+                    Batch::Physical(_) => {
+                        session.advance_to(count);
                     }
                 }
 
-                count += 1;
+                session.insert((count % articles, 0));
             }
-            println!("worker {}: {} in {}s => {}",
-                     index,
-                     count,
-                     dur_to_ns!(start.elapsed()) as f64 / NANOS_PER_SEC as f64,
-                     count as f64 / (dur_to_ns!(start.elapsed()) / NANOS_PER_SEC as f64));
+
+            match batch {
+                Batch::None => {
+                    session.advance_to(count + 1);
+                    session.flush();
+                    worker.step_while(|| probe.less_than(session.time()));
+                }
+                Batch::Logical(bs) => {
+                    if count % bs == 0 {
+                        let &t = session.time();
+                        session.advance_to(t.inner + 1);
+                        session.flush();
+                        worker.step_while(|| probe.less_than(session.time()));
+                    }
+                }
+                Batch::Physical(bs) => {
+                    if count % bs == 0 {
+                        session.advance_to(count + 1);
+                        session.flush();
+                        worker.step_while(|| probe.less_than(session.time()));
+                    }
+                }
+            }
+
+            count += 1;
         }
+        println!("worker {}: {} in {}s => {}",
+                 index,
+                 count,
+                 dur_to_ns!(start.elapsed()) as f64 / NANOS_PER_SEC as f64,
+                 count as f64 / (dur_to_ns!(start.elapsed()) / NANOS_PER_SEC as f64));
     })
             .unwrap();
 
