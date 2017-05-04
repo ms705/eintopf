@@ -87,7 +87,7 @@ fn main() {
             .requires("batch_size")
             .help("Kind of input batching to use [logical|physical]"))
         .arg(Arg::with_name("batch_size")
-            .long("batch_size")
+            .long("batch-size")
             .takes_value(true)
             .default_value("1000")
             .help("Input batch size to use [if --batch_kind is set]."))
@@ -97,6 +97,9 @@ fn main() {
             .value_name("N")
             .default_value("1")
             .help("Number of worker threads"))
+        .arg(Arg::with_name("merge_ops")
+            .long("merge-operators")
+            .help("Merge operators inside the data-flow."))
         .get_matches();
 
     let narticles = value_t_or_exit!(args, "narticles", usize);
@@ -112,13 +115,14 @@ fn main() {
             }
         }
     };
+    let merge = args.is_present("merge_ops");
     let runtime = value_t_or_exit!(args, "runtime", u64);
     let workers = value_t_or_exit!(args, "workers", usize);
 
-    run_dataflow(narticles, batch, runtime, workers);
+    run_dataflow(narticles, batch, merge, runtime, workers);
 }
 
-fn run_dataflow(articles: usize, batch: Batch, runtime: u64, workers: usize) {
+fn run_dataflow(articles: usize, batch: Batch, merge: bool, runtime: u64, workers: usize) {
 
     println!("Using batching configuration {:?}", batch);
 
@@ -137,22 +141,27 @@ fn run_dataflow(articles: usize, batch: Batch, runtime: u64, workers: usize) {
             let articles = articles.as_collection();
             let votes = votes.as_collection();
 
-            // // simple vote aggregation
-            // let vc = votes.map(|(aid, _uid)| aid).count_u();
+            let awvc = if merge {
+                let vc =
+                    votes
+                        .map(|(aid, _uid)| (UnsignedWrapper::from(aid), ()))
+                        .arrange(DefaultKeyTrace::new())
+                        .group_arranged(|_k, s, t| t.push((s[0].1, 1)), DefaultValTrace::new());
 
-            // // compute ArticleWithVoteCount view
-            // let awvc = articles.join_u(&vc);
+                // compute ArticleWithVoteCount view
+                articles
+                    .map(|(aid, text)| (UnsignedWrapper::from(aid), text))
+                    .arrange(DefaultValTrace::new())
+                    .join_core(&vc, |k: &UnsignedWrapper<usize>, text: &String, &count| {
+                        Some((k.item, text.clone(), count))
+                    })
+            } else {
+                // simple vote aggregation
+                let vc = votes.map(|(aid, _uid)| aid).count_u();
 
-            let vc = votes.map(|(aid, _uid)| (UnsignedWrapper::from(aid), ()))
-                          .arrange(DefaultKeyTrace::new())
-                          .group_arranged(|_k,s,t| t.push((s[0].1, 1)), DefaultValTrace::new());
-
-            // compute ArticleWithVoteCount view
-            let awvc = articles
-                          .map(|(aid, text)| (UnsignedWrapper::from(aid), text))
-                          .arrange(DefaultValTrace::new())
-                          .join_core(&vc, |k: &UnsignedWrapper<usize>, text: &String, &count| Some((k.item, text.clone(), count)));
-
+                // compute ArticleWithVoteCount view
+                articles.join_u(&vc)
+            };
 
             let probe = awvc.probe();
 
