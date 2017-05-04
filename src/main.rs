@@ -163,7 +163,9 @@ fn run_dataflow(articles: usize, batch: Batch, runtime: u64, workers: usize) {
         vt_in.advance_to(1);
         worker.step_while(|| probe.less_than(vt_in.time()));
 
-        println!("Loading finished after {:?}", timer.elapsed());
+        if index == 0 {
+            println!("Loading finished after {:?}", timer.elapsed());
+        }
 
         // now run the throughput measurement
         let start = time::Instant::now();
@@ -208,11 +210,13 @@ fn run_dataflow(articles: usize, batch: Batch, runtime: u64, workers: usize) {
 
             count += 1;
         }
-        println!("worker {}: {} in {}s => {}",
-                 index,
-                 count,
-                 dur_to_ns!(start.elapsed()) as f64 / NANOS_PER_SEC as f64,
-                 count as f64 / (dur_to_ns!(start.elapsed()) / NANOS_PER_SEC as f64));
+
+        if index == 0 {
+            println!("wrote {} votes in {}s => {}",
+                     count,
+                     dur_to_ns!(start.elapsed()) as f64 / NANOS_PER_SEC as f64,
+                     count as f64 / (dur_to_ns!(start.elapsed()) / NANOS_PER_SEC as f64));
+        }
     })
             .unwrap();
 
