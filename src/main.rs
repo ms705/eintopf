@@ -11,6 +11,12 @@ use timely::dataflow::operators::*;
 
 use differential_dataflow::AsCollection;
 use differential_dataflow::operators::*;
+use differential_dataflow::operators::arrange::Arrange;
+use differential_dataflow::operators::group::GroupArranged;
+use differential_dataflow::trace::implementations::ord::OrdValSpine as DefaultValTrace;
+use differential_dataflow::trace::implementations::ord::OrdKeySpine as DefaultKeyTrace;
+use differential_dataflow::hashable::UnsignedWrapper;
+use differential_dataflow::trace::Trace;
 
 const NANOS_PER_SEC: u64 = 1_000_000_000;
 macro_rules! dur_to_ns {
@@ -131,11 +137,22 @@ fn run_dataflow(articles: usize, batch: Batch, runtime: u64, workers: usize) {
             let articles = articles.as_collection();
             let votes = votes.as_collection();
 
-            // simple vote aggregation
-            let vc = votes.map(|(aid, _uid)| aid).count_u();
+            // // simple vote aggregation
+            // let vc = votes.map(|(aid, _uid)| aid).count_u();
+
+            // // compute ArticleWithVoteCount view
+            // let awvc = articles.join_u(&vc);
+
+            let vc = votes.map(|(aid, _uid)| (UnsignedWrapper::from(aid), ()))
+                          .arrange(DefaultKeyTrace::new())
+                          .group_arranged(|_k,s,t| t.push((s[0].1, 1)), DefaultValTrace::new());
 
             // compute ArticleWithVoteCount view
-            let awvc = articles.join_u(&vc);
+            let awvc = articles
+                          .map(|(aid, text)| (UnsignedWrapper::from(aid), text))
+                          .arrange(DefaultValTrace::new())
+                          .join_core(&vc, |k: &UnsignedWrapper<usize>, text: &String, &count| Some((k.item, text.clone(), count)));
+
 
             let probe = awvc.probe();
 
