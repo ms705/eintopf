@@ -77,7 +77,7 @@ fn main() {
             .short("w")
             .long("workers")
             .value_name("N")
-            .default_value("60")
+            .default_value("1")
             .help("Number of worker threads"))
         .get_matches();
 
