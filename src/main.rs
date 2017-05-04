@@ -84,14 +84,15 @@ fn main() {
     let narticles = value_t_or_exit!(args, "narticles", usize);
     let batch = value_t_or_exit!(args, "batch", usize);
     let runtime = value_t_or_exit!(args, "runtime", usize);
+    let workers = value_t_or_exit!(args, "workers", usize);
 
-    run_dataflow(narticles, batch, runtime as u64);
+    run_dataflow(narticles, batch, runtime as u64, workers);
 }
 
-fn run_dataflow(articles: usize, batch: usize, runtime: u64) {
+fn run_dataflow(articles: usize, batch: usize, runtime: u64, workers: usize) {
     //let batch: usize = 100;
 
-    timely::execute(timely::Configuration::Process(1), move |worker| {
+    timely::execute(timely::Configuration::Process(workers,), move |worker| {
         let index = worker.index();
         let peers = worker.peers();
 
