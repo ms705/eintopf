@@ -30,6 +30,12 @@ fn main() {
             .long("avg")
             .takes_value(false)
             .help("compute average throughput at the end of benchmark"))
+        .arg(Arg::with_name("batch")
+            .short("b")
+            .long("batch")
+            .value_name("N")
+            .default_value("1000")
+            .help("number of concurrent update timestamps"))
         .arg(Arg::with_name("cdf")
             .short("c")
             .long("cdf")
@@ -67,14 +73,22 @@ fn main() {
             .short("q")
             .long("quiet")
             .help("No noisy output while running"))
+        .arg(Arg::with_name("workers")
+            .short("w")
+            .long("workers")
+            .value_name("N")
+            .default_value("60")
+            .help("Number of worker threads"))
         .get_matches();
 
     let narticles = value_t_or_exit!(args, "narticles", usize);
+    let batch = value_t_or_exit!(args, "batch", usize);
+    let runtime = value_t_or_exit!(args, "runtime", usize);
 
-    run_dataflow(narticles);
+    run_dataflow(narticles, batch, runtime as u64);
 }
 
-fn run_dataflow(articles: usize) {
+fn run_dataflow(articles: usize, batch: usize, runtime: u64) {
     //let batch: usize = 100;
 
     timely::execute(timely::Configuration::Process(1), move |worker| {
@@ -116,32 +130,39 @@ fn run_dataflow(articles: usize) {
                 // that all articles are present in awvc
                 vt_in.send(((aid, 0), vt_time, 1));
             }
-
-            // wait for things to propagate
-            art_in.advance_to(1);
-            vt_in.advance_to(1);
-            worker.step_while(|| probe.less_than(art_in.time()));
-
-            println!("Loading finished after {:?}", timer.elapsed());
-
-            // now run the throughput measurement
-            let start = time::Instant::now();
-            let mut count = 0;
-
-            while start.elapsed() < time::Duration::from_millis(60000) {
-                let &t = vt_in.time();
-                vt_in.send(((count % articles, 0u32), t, 1));
-                worker.step();
-                count += 1;
-            }
-            println!("worker {}: {} in {}s => {}",
-                     index,
-                     count,
-                     dur_to_ns!(start.elapsed()) as f64 / NANOS_PER_SEC as f64,
-                     count as f64 / (dur_to_ns!(start.elapsed()) / NANOS_PER_SEC as f64));
         }
-    })
-            .unwrap();
+
+        art_in.close();
+        vt_in.advance_to(1);
+        worker.step_while(|| probe.less_than(vt_in.time()));
+
+        println!("Loading finished after {:?}", timer.elapsed());
+        // now run the throughput measurement
+        let start = time::Instant::now();
+        let mut count = 1;
+
+        let mut session = differential_dataflow::input::InputSession::from(&mut vt_in);
+
+        while start.elapsed() < time::Duration::from_millis(runtime * 1000) {
+
+            session.advance_to(count);
+            session.insert((count % articles, 0));
+
+            if count % batch == 0 {
+                // all workers indicate they have finished with `count`.
+                session.advance_to(count + 1);
+                session.flush();
+                worker.step_while(|| probe.less_than(session.time()));
+            }
+
+            count += 1;
+        }
+        println!("worker {}: {} in {}s => {}",
+                 index,
+                 count,
+                 dur_to_ns!(start.elapsed()) as f64 / NANOS_PER_SEC as f64,
+                 count as f64 / (dur_to_ns!(start.elapsed()) / NANOS_PER_SEC as f64));
+    }).unwrap();
 
     println!("Done");
 }
