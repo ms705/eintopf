@@ -20,6 +20,13 @@ macro_rules! dur_to_ns {
     }}
 }
 
+#[derive(Debug)]
+enum Batch {
+    None,
+    Logical(usize),
+    Physical(usize),
+}
+
 fn main() {
     use clap::{Arg, App};
 
@@ -67,16 +74,40 @@ fn main() {
             .short("q")
             .long("quiet")
             .help("No noisy output while running"))
+        .arg(Arg::with_name("batch_kind")
+             .short("b")
+             .long("batch_kind")
+             .takes_value(true)
+             .requires("batch_size")
+             .help("Kind of input batching to use [logical|physical]"))
+        .arg(Arg::with_name("batch_size")
+             .long("batch_size")
+             .takes_value(true)
+             .default_value("100")
+             .help("Input batch size to use [if --batch_kind is set]."))
         .get_matches();
 
     let narticles = value_t_or_exit!(args, "narticles", usize);
+    let bsize = value_t_or_exit!(args, "batch_size", usize);
+    let batch = match args.value_of("batch_kind") {
+        None => Batch::None,
+        Some(v) => {
+            match v {
+                "none" => Batch::None,
+                "logical" => Batch::Logical(bsize),
+                "physical" => Batch::Physical(bsize),
+                _ => panic!("unexpected batch kind {}", v),
+            }
+        }
+    };
+    let runtime = value_t_or_exit!(args, "runtime", u64);
 
-    run_dataflow(narticles);
+    run_dataflow(narticles, batch, runtime);
 }
 
-fn run_dataflow(articles: usize) {
-    //let batch: usize = 100;
+fn run_dataflow(articles: usize, batch: Batch, runtime: u64) {
 
+    // set up the dataflow
     timely::execute(timely::Configuration::Process(1), move |worker| {
         let index = worker.index();
         let peers = worker.peers();
@@ -124,14 +155,40 @@ fn run_dataflow(articles: usize) {
 
             println!("Loading finished after {:?}", timer.elapsed());
 
+            // we're done adding articles
+            art_in.close();
+
             // now run the throughput measurement
             let start = time::Instant::now();
             let mut count = 0;
 
-            while start.elapsed() < time::Duration::from_millis(60000) {
+            while start.elapsed() < time::Duration::from_millis(runtime * 1000) {
                 let &t = vt_in.time();
                 vt_in.send(((count % articles, 0u32), t, 1));
-                worker.step();
+
+                match batch {
+                    Batch::None => {
+                        vt_in.advance_to(t.inner + 1);
+                        worker.step();
+                    }
+                    Batch::Logical(bs) => {
+                        // logical batching
+                        if count % bs == 0 {
+                            vt_in.advance_to(t.inner + 1);
+                            worker.step();
+                        }
+                    }
+                    Batch::Physical(bs) => {
+                        // physical batching
+                        vt_in.advance_to(t.inner + 1);
+                        if count % bs == 0 {
+                            for _ in 0..bs {
+                                worker.step();
+                            }
+                        }
+                    }
+                }
+
                 count += 1;
             }
             println!("worker {}: {} in {}s => {}",
