@@ -124,7 +124,7 @@ fn main() {
 
 fn run_dataflow(articles: usize, batch: Batch, merge: bool, runtime: u64, workers: usize) {
 
-    println!("Using batching configuration {:?}", batch);
+    println!("Batching: {:?}, merging: {}", batch, merge);
 
     // set up the dataflow
     timely::execute(timely::Configuration::Process(workers), move |worker| {
