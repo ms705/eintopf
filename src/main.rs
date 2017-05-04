@@ -146,8 +146,10 @@ fn run_dataflow(articles: usize, batch: usize, runtime: u64, workers: usize) {
 
         while start.elapsed() < time::Duration::from_millis(runtime * 1000) {
 
-            session.advance_to(count);
-            session.insert((count % articles, 0));
+            if count % peers == index {
+                session.advance_to(count);
+                session.insert((count % articles, 0));
+            }
 
             if count % batch == 0 {
                 // all workers indicate they have finished with `count`.
