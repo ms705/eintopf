@@ -89,7 +89,7 @@ fn main() {
         .arg(Arg::with_name("batch_size")
             .long("batch_size")
             .takes_value(true)
-            .default_value("100")
+            .default_value("1000")
             .help("Input batch size to use [if --batch_kind is set]."))
         .arg(Arg::with_name("workers")
             .short("w")
