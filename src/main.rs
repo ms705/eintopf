@@ -26,12 +26,12 @@ macro_rules! dur_to_ns {
     }}
 }
 
-#[derive(Debug)]
-enum Batch {
-    None,
-    Logical(usize),
-    Physical(usize),
-}
+// #[derive(Debug)]
+// enum Batch {
+//     None,
+//     Logical(usize),
+//     Physical(usize),
+// }
 
 fn main() {
     use clap::{Arg, App};
@@ -80,17 +80,22 @@ fn main() {
             .short("q")
             .long("quiet")
             .help("No noisy output while running"))
-        .arg(Arg::with_name("batch_kind")
-            .short("b")
-            .long("batch_kind")
-            .takes_value(true)
-            .requires("batch_size")
-            .help("Kind of input batching to use [logical|physical]"))
+        // .arg(Arg::with_name("batch_kind")
+        //     .short("b")
+        //     .long("batch_kind")
+        //     .takes_value(true)
+        //     .requires("batch_size")
+        //     .help("Kind of input batching to use [logical|physical]"))
         .arg(Arg::with_name("batch_size")
             .long("batch-size")
             .takes_value(true)
             .default_value("1000")
             .help("Input batch size to use [if --batch_kind is set]."))
+        .arg(Arg::with_name("read_mix")
+            .long("read-mix")
+            .takes_value(true)
+            .default_value("19")
+            .help("Number of reads to perform for each write"))
         .arg(Arg::with_name("workers")
             .short("w")
             .long("workers")
@@ -104,25 +109,26 @@ fn main() {
 
     let narticles = value_t_or_exit!(args, "narticles", usize);
     let bsize = value_t_or_exit!(args, "batch_size", usize);
-    let batch = match args.value_of("batch_kind") {
-        None => Batch::None,
-        Some(v) => {
-            match v {
-                "none" => Batch::None,
-                "logical" => Batch::Logical(bsize),
-                "physical" => Batch::Physical(bsize),
-                _ => panic!("unexpected batch kind {}", v),
-            }
-        }
-    };
+    // let batch = match args.value_of("batch_kind") {
+    //     None => Batch::None,
+    //     Some(v) => {
+    //         match v {
+    //             "none" => Batch::None,
+    //             "logical" => Batch::Logical(bsize),
+    //             "physical" => Batch::Physical(bsize),
+    //             _ => panic!("unexpected batch kind {}", v),
+    //         }
+    //     }
+    // };
+    let reads = value_t_or_exit!(args, "read_mix", usize);
     let merge = args.is_present("merge_ops");
     let runtime = value_t_or_exit!(args, "runtime", u64);
     let workers = value_t_or_exit!(args, "workers", usize);
 
-    run_dataflow(narticles, batch, merge, runtime, workers);
+    run_dataflow(narticles, bsize, reads, merge, runtime, workers);
 }
 
-fn run_dataflow(articles: usize, batch: Batch, merge: bool, runtime: u64, workers: usize) {
+fn run_dataflow(articles: usize, batch: usize, read_mix: usize, merge: bool, runtime: u64, workers: usize) {
 
     println!("Batching: {:?}, merging: {}", batch, merge);
 
@@ -132,13 +138,18 @@ fn run_dataflow(articles: usize, batch: Batch, merge: bool, runtime: u64, worker
         let peers = worker.peers();
 
         // create a a degree counting differential dataflow
-        let (mut art_in, mut vt_in, probe) = worker.dataflow(|scope| {
+        let (mut art_in, mut vt_in, mut reads_in, probe) = worker.dataflow(|scope| {
+
+            // create input for read request.
+            let (reads_in, reads) = scope.new_input();
+            let reads = reads.as_collection();
+
             // create articles input
             let (art_in, articles) = scope.new_input();
+            let articles = articles.as_collection();
+
             // create votes input
             let (vt_in, votes) = scope.new_input();
-
-            let articles = articles.as_collection();
             let votes = votes.as_collection();
 
             let awvc = if merge {
@@ -153,19 +164,20 @@ fn run_dataflow(articles: usize, batch: Batch, merge: bool, runtime: u64, worker
                     .map(|(aid, text)| (UnsignedWrapper::from(aid), text))
                     .arrange(DefaultValTrace::new())
                     .join_core(&vc, |k: &UnsignedWrapper<usize>, text: &String, &count| {
-                        Some((k.item, text.clone(), count))
+                        Some((k.item, (text.clone(), count)))
                     })
             } else {
                 // simple vote aggregation
                 let vc = votes.map(|(aid, _uid)| aid).count_u();
 
                 // compute ArticleWithVoteCount view
-                articles.join_u(&vc)
+                articles.join_map_u(&vc, |k: &usize, text: &String, &count| (*k, (text.clone(), count)))
             };
 
-            let probe = awvc.probe();
+            let probe = awvc.semijoin_u(&reads)
+                            .probe();
 
-            (art_in, vt_in, probe)
+            (art_in, vt_in, reads_in, probe)
         });
 
         let timer = time::Instant::now();
@@ -176,6 +188,7 @@ fn run_dataflow(articles: usize, batch: Batch, merge: bool, runtime: u64, worker
             let &vt_time = vt_in.time();
             for aid in 0..articles {
                 // add article
+                // art_in.send(((aid, format!("Article #{}", aid)), art_time, 1));
                 art_in.send(((aid, format!("Article #{}", aid)), art_time, 1));
 
                 // vote once for each article as we don't have a convenient left join; this ensures
@@ -187,6 +200,7 @@ fn run_dataflow(articles: usize, batch: Batch, merge: bool, runtime: u64, worker
         // we're done adding articles
         art_in.close();
         vt_in.advance_to(1);
+        reads_in.advance_to(1);
         worker.step_while(|| probe.less_than(vt_in.time()));
 
         if index == 0 {
@@ -197,48 +211,38 @@ fn run_dataflow(articles: usize, batch: Batch, merge: bool, runtime: u64, worker
         let start = time::Instant::now();
         let mut count = 1;
         let mut session = differential_dataflow::input::InputSession::from(&mut vt_in);
+        let mut reads = differential_dataflow::input::InputSession::from(&mut reads_in);
 
         while start.elapsed() < time::Duration::from_millis(runtime * 1000) {
+
             if count % peers == index {
-                match batch {
-                    Batch::Logical(_) => (),
-                    Batch::None |
-                    Batch::Physical(_) => {
-                        session.advance_to(count);
-                    }
+
+                if (count / peers) % (read_mix + 1) == 0 {
+                    session.advance_to(count);
+                    session.insert((count % articles, 0));
+                }
+                else {
+                    reads.advance_to(count);
+                    reads.insert(count % articles);
+                    reads.advance_to(count+1);
+                    reads.remove(count % articles);
                 }
 
-                session.insert((count % articles, 0));
             }
 
-            match batch {
-                Batch::None => {
-                    session.advance_to(count + 1);
-                    session.flush();
-                    worker.step_while(|| probe.less_than(session.time()));
-                }
-                Batch::Logical(bs) => {
-                    if count % bs == 0 {
-                        let &t = session.time();
-                        session.advance_to(t.inner + 1);
-                        session.flush();
-                        worker.step_while(|| probe.less_than(session.time()));
-                    }
-                }
-                Batch::Physical(bs) => {
-                    if count % bs == 0 {
-                        session.advance_to(count + 1);
-                        session.flush();
-                        worker.step_while(|| probe.less_than(session.time()));
-                    }
-                }
+            if count % batch == 0 {
+                session.advance_to(count + 1);
+                session.flush();
+                reads.advance_to(count + 1);
+                reads.flush();
+                worker.step_while(|| probe.less_than(session.time()));
             }
 
             count += 1;
         }
 
         if index == 0 {
-            println!("wrote {} votes in {}s => {}",
+            println!("processed {} events in {}s => {}",
                      count,
                      dur_to_ns!(start.elapsed()) as f64 / NANOS_PER_SEC as f64,
                      count as f64 / (dur_to_ns!(start.elapsed()) / NANOS_PER_SEC as f64));
