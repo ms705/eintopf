@@ -188,7 +188,6 @@ fn run_dataflow(articles: usize, batch: usize, read_mix: usize, merge: bool, run
             let &vt_time = vt_in.time();
             for aid in 0..articles {
                 // add article
-                // art_in.send(((aid, format!("Article #{}", aid)), art_time, 1));
                 art_in.send(((aid, format!("Article #{}", aid)), art_time, 1));
 
                 // vote once for each article as we don't have a convenient left join; this ensures
