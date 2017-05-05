@@ -100,6 +100,10 @@ fn main() {
         .arg(Arg::with_name("merge_ops")
             .long("merge-operators")
             .help("Merge operators inside the data-flow."))
+        .arg(Arg::with_name("timely_cluster_cfg")
+            .long("timely-cluster")
+            .takes_value(true)
+            .help("Cluster config string to pass to timely."))
         .get_matches();
 
     let narticles = value_t_or_exit!(args, "narticles", usize);
@@ -118,16 +122,33 @@ fn main() {
     let merge = args.is_present("merge_ops");
     let runtime = value_t_or_exit!(args, "runtime", u64);
     let workers = value_t_or_exit!(args, "workers", usize);
+    let cluster_cfg = args.value_of("timely_cluster_cfg");
 
-    run_dataflow(narticles, batch, merge, runtime, workers);
+    run_dataflow(narticles, batch, merge, runtime, workers, cluster_cfg);
 }
 
-fn run_dataflow(articles: usize, batch: Batch, merge: bool, runtime: u64, workers: usize) {
+fn run_dataflow(articles: usize,
+                batch: Batch,
+                merge: bool,
+                runtime: u64,
+                workers: usize,
+                cluster_cfg: Option<&str>) {
 
     println!("Batching: {:?}, merging: {}", batch, merge);
 
+    let tc = match cluster_cfg {
+        None => timely::Configuration::Process(workers),
+        Some(ref cc) => {
+            timely::Configuration::from_args(cc.split(" ")
+                                                 .map(String::from)
+                                                 .collect::<Vec<_>>()
+                                                 .into_iter())
+                    .unwrap()
+        }
+    };
+
     // set up the dataflow
-    timely::execute(timely::Configuration::Process(workers), move |worker| {
+    timely::execute(tc, move |worker| {
         let index = worker.index();
         let peers = worker.peers();
 
