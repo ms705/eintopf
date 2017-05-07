@@ -26,13 +26,6 @@ macro_rules! dur_to_ns {
     }}
 }
 
-// #[derive(Debug)]
-// enum Batch {
-//     None,
-//     Logical(usize),
-//     Physical(usize),
-// }
-
 fn main() {
     use clap::{Arg, App};
 
@@ -80,17 +73,12 @@ fn main() {
             .short("q")
             .long("quiet")
             .help("No noisy output while running"))
-        // .arg(Arg::with_name("batch_kind")
-        //     .short("b")
-        //     .long("batch_kind")
-        //     .takes_value(true)
-        //     .requires("batch_size")
-        //     .help("Kind of input batching to use [logical|physical]"))
         .arg(Arg::with_name("batch_size")
+            .short("b")
             .long("batch-size")
             .takes_value(true)
             .default_value("1000")
-            .help("Input batch size to use [if --batch_kind is set]."))
+            .help("Input batch size to use."))
         .arg(Arg::with_name("read_mix")
             .long("read-mix")
             .takes_value(true)
@@ -113,17 +101,6 @@ fn main() {
 
     let narticles = value_t_or_exit!(args, "narticles", usize);
     let bsize = value_t_or_exit!(args, "batch_size", usize);
-    // let batch = match args.value_of("batch_kind") {
-    //     None => Batch::None,
-    //     Some(v) => {
-    //         match v {
-    //             "none" => Batch::None,
-    //             "logical" => Batch::Logical(bsize),
-    //             "physical" => Batch::Physical(bsize),
-    //             _ => panic!("unexpected batch kind {}", v),
-    //         }
-    //     }
-    // };
     let reads = value_t_or_exit!(args, "read_mix", usize);
     let merge = args.is_present("merge_ops");
     let runtime = value_t_or_exit!(args, "runtime", u64);
