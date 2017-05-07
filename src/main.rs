@@ -105,6 +105,10 @@ fn main() {
         .arg(Arg::with_name("merge_ops")
             .long("merge-operators")
             .help("Merge operators inside the data-flow."))
+        .arg(Arg::with_name("timely_cluster_cfg")
+            .long("timely-cluster")
+            .takes_value(true)
+            .help("Cluster config string to pass to timely."))
         .get_matches();
 
     let narticles = value_t_or_exit!(args, "narticles", usize);
@@ -124,16 +128,40 @@ fn main() {
     let merge = args.is_present("merge_ops");
     let runtime = value_t_or_exit!(args, "runtime", u64);
     let workers = value_t_or_exit!(args, "workers", usize);
+    let cluster_cfg = args.value_of("timely_cluster_cfg");
 
-    run_dataflow(narticles, bsize, reads, merge, runtime, workers);
+    run_dataflow(narticles,
+                 bsize,
+                 reads,
+                 merge,
+                 runtime,
+                 workers,
+                 cluster_cfg);
 }
 
-fn run_dataflow(articles: usize, batch: usize, read_mix: usize, merge: bool, runtime: u64, workers: usize) {
+fn run_dataflow(articles: usize,
+                batch: usize,
+                read_mix: usize,
+                merge: bool,
+                runtime: u64,
+                workers: usize,
+                cluster_cfg: Option<&str>) {
 
     println!("Batching: {:?}, merging: {}", batch, merge);
 
+    let tc = match cluster_cfg {
+        None => timely::Configuration::Process(workers),
+        Some(ref cc) => {
+            timely::Configuration::from_args(cc.split(" ")
+                                                 .map(String::from)
+                                                 .collect::<Vec<_>>()
+                                                 .into_iter())
+                    .unwrap()
+        }
+    };
+
     // set up the dataflow
-    timely::execute(timely::Configuration::Process(workers), move |worker| {
+    timely::execute(tc, move |worker| {
         let index = worker.index();
         let peers = worker.peers();
 
@@ -171,11 +199,11 @@ fn run_dataflow(articles: usize, batch: usize, read_mix: usize, merge: bool, run
                 let vc = votes.map(|(aid, _uid)| aid).count_u();
 
                 // compute ArticleWithVoteCount view
-                articles.join_map_u(&vc, |k: &usize, text: &String, &count| (*k, (text.clone(), count)))
+                articles.join_map_u(&vc,
+                                    |k: &usize, text: &String, &count| (*k, (text.clone(), count)))
             };
 
-            let probe = awvc.semijoin_u(&reads)
-                            .probe();
+            let probe = awvc.semijoin_u(&reads).probe();
 
             (art_in, vt_in, reads_in, probe)
         });
@@ -219,11 +247,10 @@ fn run_dataflow(articles: usize, batch: usize, read_mix: usize, merge: bool, run
                 if (count / peers) % (read_mix + 1) == 0 {
                     session.advance_to(count);
                     session.insert((count % articles, 0));
-                }
-                else {
+                } else {
                     reads.advance_to(count);
                     reads.insert(count % articles);
-                    reads.advance_to(count+1);
+                    reads.advance_to(count + 1);
                     reads.remove(count % articles);
                 }
 
