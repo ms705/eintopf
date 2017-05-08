@@ -7,16 +7,8 @@ extern crate timely;
 
 use std::time;
 
-use timely::dataflow::operators::*;
-
-use differential_dataflow::AsCollection;
+use differential_dataflow::input::Input;
 use differential_dataflow::operators::*;
-use differential_dataflow::operators::arrange::Arrange;
-use differential_dataflow::operators::group::GroupArranged;
-use differential_dataflow::trace::implementations::ord::OrdValSpine as DefaultValTrace;
-use differential_dataflow::trace::implementations::ord::OrdKeySpine as DefaultKeyTrace;
-use differential_dataflow::hashable::UnsignedWrapper;
-use differential_dataflow::trace::Trace;
 
 const NANOS_PER_SEC: u64 = 1_000_000_000;
 macro_rules! dur_to_ns {
@@ -90,9 +82,6 @@ fn main() {
             .value_name("N")
             .default_value("1")
             .help("Number of worker threads"))
-        .arg(Arg::with_name("merge_ops")
-            .long("merge-operators")
-            .help("Merge operators inside the data-flow."))
         .arg(Arg::with_name("timely_cluster_cfg")
             .long("timely-cluster")
             .takes_value(true)
@@ -102,7 +91,6 @@ fn main() {
     let narticles = value_t_or_exit!(args, "narticles", usize);
     let bsize = value_t_or_exit!(args, "batch_size", usize);
     let reads = value_t_or_exit!(args, "read_mix", usize);
-    let merge = args.is_present("merge_ops");
     let runtime = value_t_or_exit!(args, "runtime", u64);
     let workers = value_t_or_exit!(args, "workers", usize);
     let cluster_cfg = args.value_of("timely_cluster_cfg");
@@ -110,7 +98,6 @@ fn main() {
     run_dataflow(narticles,
                  bsize,
                  reads,
-                 merge,
                  runtime,
                  workers,
                  cluster_cfg);
@@ -119,12 +106,11 @@ fn main() {
 fn run_dataflow(articles: usize,
                 batch: usize,
                 read_mix: usize,
-                merge: bool,
                 runtime: u64,
                 workers: usize,
                 cluster_cfg: Option<&str>) {
 
-    println!("Batching: {:?}, merging: {}", batch, merge);
+    println!("Batching: {:?}", batch);
 
     let tc = match cluster_cfg {
         None => timely::Configuration::Process(workers),
@@ -139,73 +125,44 @@ fn run_dataflow(articles: usize,
 
     // set up the dataflow
     timely::execute(tc, move |worker| {
+
         let index = worker.index();
         let peers = worker.peers();
 
         // create a a degree counting differential dataflow
-        let (mut art_in, mut vt_in, mut reads_in, probe) = worker.dataflow(|scope| {
+        let (mut articles_in, mut votes_in, mut reads_in, probe) = worker.dataflow(|scope| {
 
             // create input for read request.
-            let (reads_in, reads) = scope.new_input();
-            let reads = reads.as_collection();
+            let (reads_in, reads) = scope.new_collection();
+            let (articles_in, articles) = scope.new_collection();
+            let (votes_in, votes) = scope.new_collection();
 
-            // create articles input
-            let (art_in, articles) = scope.new_input();
-            let articles = articles.as_collection();
+            // merge votes with articles, to ensure counts for un-voted articles.
+            let votes = votes.map(|(aid, _uid)| aid)
+                             .concat(&articles.map(|(aid, _title)| aid));
 
-            // create votes input
-            let (vt_in, votes) = scope.new_input();
-            let votes = votes.as_collection();
+            // capture artices and votes, restrict by query article ids.
+            let probe = articles.semijoin_u(&votes)
+                                .semijoin_u(&reads)
+                                .probe();
 
-            let awvc = if merge {
-                let vc =
-                    votes
-                        .map(|(aid, _uid)| (UnsignedWrapper::from(aid), ()))
-                        .arrange(DefaultKeyTrace::new())
-                        .group_arranged(|_k, s, t| t.push((s[0].1, 1)), DefaultValTrace::new());
-
-                // compute ArticleWithVoteCount view
-                articles
-                    .map(|(aid, text)| (UnsignedWrapper::from(aid), text))
-                    .arrange(DefaultValTrace::new())
-                    .join_core(&vc, |k: &UnsignedWrapper<usize>, text: &String, &count| {
-                        Some((k.item, (text.clone(), count)))
-                    })
-            } else {
-                // simple vote aggregation
-                let vc = votes.map(|(aid, _uid)| aid).count_u();
-
-                // compute ArticleWithVoteCount view
-                articles.join_map_u(&vc,
-                                    |k: &usize, text: &String, &count| (*k, (text.clone(), count)))
-            };
-
-            let probe = awvc.semijoin_u(&reads).probe();
-
-            (art_in, vt_in, reads_in, probe)
+            (articles_in, votes_in, reads_in, probe)
         });
 
         let timer = time::Instant::now();
 
-        // prepopulate
+        // prepopulate articles
         if index == 0 {
-            let &art_time = art_in.time();
-            let &vt_time = vt_in.time();
             for aid in 0..articles {
-                // add article
-                art_in.send(((aid, format!("Article #{}", aid)), art_time, 1));
-
-                // vote once for each article as we don't have a convenient left join; this ensures
-                // that all articles are present in awvc
-                vt_in.send(((aid, 0), vt_time, 1));
+                articles_in.insert((aid, format!("Article #{}", aid)));
             }
         }
 
         // we're done adding articles
-        art_in.close();
-        vt_in.advance_to(1);
-        reads_in.advance_to(1);
-        worker.step_while(|| probe.less_than(vt_in.time()));
+        articles_in.close();
+        votes_in.advance_to(1); votes_in.flush();
+        reads_in.advance_to(1); reads_in.flush();
+        worker.step_while(|| probe.less_than(votes_in.time()));
 
         if index == 0 {
             println!("Loading finished after {:?}", timer.elapsed());
@@ -214,31 +171,31 @@ fn run_dataflow(articles: usize,
         // now run the throughput measurement
         let start = time::Instant::now();
         let mut count = 1;
-        let mut session = differential_dataflow::input::InputSession::from(&mut vt_in);
-        let mut reads = differential_dataflow::input::InputSession::from(&mut reads_in);
+        let mut total = 0;
 
         while start.elapsed() < time::Duration::from_millis(runtime * 1000) {
 
             if count % peers == index {
 
+                // either write a vote, or read an article.
                 if (count / peers) % (read_mix + 1) == 0 {
-                    session.advance_to(count);
-                    session.insert((count % articles, 0));
-                } else {
-                    reads.advance_to(count);
-                    reads.insert(count % articles);
-                    reads.advance_to(count + 1);
-                    reads.remove(count % articles);
+                    votes_in.advance_to(count);
+                    votes_in.insert((count % articles, 0));
+                } 
+                else {
+                    reads_in.advance_to(count);
+                    reads_in.insert(count % articles);
+                    reads_in.advance_to(count + 1);
+                    reads_in.remove(count % articles);
                 }
 
             }
 
             if count % batch == 0 {
-                session.advance_to(count + 1);
-                session.flush();
-                reads.advance_to(count + 1);
-                reads.flush();
-                worker.step_while(|| probe.less_than(session.time()));
+                votes_in.advance_to(count + 1); votes_in.flush();
+                reads_in.advance_to(count + 1); reads_in.flush();
+                worker.step_while(|| probe.less_than(votes_in.time()));
+                total = count;
             }
 
             count += 1;
@@ -246,12 +203,11 @@ fn run_dataflow(articles: usize,
 
         if index == 0 {
             println!("processed {} events in {}s => {}",
-                     count,
+                     total,
                      dur_to_ns!(start.elapsed()) as f64 / NANOS_PER_SEC as f64,
-                     count as f64 / (dur_to_ns!(start.elapsed()) / NANOS_PER_SEC as f64));
+                     total as f64 / (dur_to_ns!(start.elapsed()) / NANOS_PER_SEC as f64));
         }
-    })
-            .unwrap();
+    }).unwrap();
 
     println!("Done");
 }
