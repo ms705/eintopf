@@ -171,41 +171,41 @@ fn run_dataflow(articles: usize,
         // now run the throughput measurement
         let start = time::Instant::now();
         let mut count = 1;
-        let mut total = 0;
 
         while start.elapsed() < time::Duration::from_millis(runtime * 1000) {
 
-            if count % peers == index {
+            for _ in 0 .. batch {
 
-                // either write a vote, or read an article.
-                if (count / peers) % (read_mix + 1) == 0 {
-                    votes_in.advance_to(count);
-                    votes_in.insert((count % articles, 0));
-                } 
-                else {
-                    reads_in.advance_to(count);
-                    reads_in.insert(count % articles);
-                    reads_in.advance_to(count + 1);
-                    reads_in.remove(count % articles);
+                if count % peers == index {
+
+                    // either write a vote, or read an article.
+                    if (count / peers) % (read_mix + 1) == 0 {
+                        votes_in.advance_to(count);
+                        votes_in.insert((count % articles, 0));
+                    } 
+                    else {
+                        reads_in.advance_to(count);
+                        reads_in.insert(count % articles);
+                        reads_in.advance_to(count + 1);
+                        reads_in.remove(count % articles);
+                    }
+
                 }
 
+                count += 1;
             }
 
-            if count % batch == 0 {
-                votes_in.advance_to(count + 1); votes_in.flush();
-                reads_in.advance_to(count + 1); reads_in.flush();
-                worker.step_while(|| probe.less_than(votes_in.time()));
-                total = count;
-            }
+            votes_in.advance_to(count); votes_in.flush();
+            reads_in.advance_to(count); reads_in.flush();
+            worker.step_while(|| probe.less_than(votes_in.time()));
 
-            count += 1;
         }
 
         if index == 0 {
             println!("processed {} events in {}s => {}",
-                     total,
+                     count,
                      dur_to_ns!(start.elapsed()) as f64 / NANOS_PER_SEC as f64,
-                     total as f64 / (dur_to_ns!(start.elapsed()) / NANOS_PER_SEC as f64));
+                     count as f64 / (dur_to_ns!(start.elapsed()) / NANOS_PER_SEC as f64));
         }
     }).unwrap();
 
