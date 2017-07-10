@@ -4,8 +4,11 @@ extern crate differential_dataflow;
 extern crate slog;
 extern crate slog_term;
 extern crate timely;
+extern crate rand;
 
 use std::time;
+
+use rand::{Rng, SeedableRng, StdRng};
 
 use differential_dataflow::input::Input;
 use differential_dataflow::operators::*;
@@ -149,6 +152,15 @@ fn run_dataflow(articles: usize,
             (articles_in, votes_in, reads_in, probe)
         });
 
+        let seed: &[_] = &[1, 2, 3, 4];
+        let mut rng: StdRng = SeedableRng::from_seed(seed);    // rng for edge additions
+
+        let mut writes: Vec<_> = (0 .. articles).collect();
+        rng.shuffle(&mut writes);
+
+        let mut reads: Vec<_> = (0 .. articles).collect();
+        rng.shuffle(&mut reads);
+
         let timer = time::Instant::now();
 
         // prepopulate articles
@@ -170,42 +182,44 @@ fn run_dataflow(articles: usize,
 
         // now run the throughput measurement
         let start = time::Instant::now();
-        let mut count = 1;
+        let mut round = 1;
 
         while start.elapsed() < time::Duration::from_millis(runtime * 1000) {
 
-            for _ in 0 .. batch {
+            for count in 0 .. batch {
 
-                if count % peers == index {
+                let local_step = round * batch + count;
+                let logical_time = local_step * peers + index;
 
-                    // either write a vote, or read an article.
-                    if (count / peers) % (read_mix + 1) == 0 {
-                        votes_in.advance_to(count);
-                        votes_in.insert((count % articles, 0));
-                    } 
-                    else {
-                        reads_in.advance_to(count);
-                        reads_in.insert(count % articles);
-                        reads_in.advance_to(count + 1);
-                        reads_in.remove(count % articles);
-                    }
+                // either write a vote, or read an article.
+                if local_step % (read_mix + 1) == 0 {
+                    votes_in.advance_to(logical_time);
+                    votes_in.insert((writes[local_step % writes.len()], 0))
+                } 
+                else {
+                    reads_in.advance_to(logical_time);
+                    reads_in.insert(reads[local_step % writes.len()]);
+                    reads_in.advance_to(logical_time + 1);
+                    reads_in.remove(reads[local_step % writes.len()]);
+                }   
 
-                }
-
-                count += 1;
             }
 
-            votes_in.advance_to(count); votes_in.flush();
-            reads_in.advance_to(count); reads_in.flush();
-            worker.step_while(|| probe.less_than(votes_in.time()));
+            round += 1;
 
+            votes_in.advance_to(round * batch * peers); votes_in.flush();
+            reads_in.advance_to(round * batch * peers); reads_in.flush();
+            worker.step_while(|| probe.less_than(votes_in.time()));
         }
+
+        // remove the first round, in which we loaded the data.
+        round -= 1;
 
         if index == 0 {
             println!("processed {} events in {}s => {}",
-                     count,
+                     round * batch,
                      dur_to_ns!(start.elapsed()) as f64 / NANOS_PER_SEC as f64,
-                     count as f64 / (dur_to_ns!(start.elapsed()) / NANOS_PER_SEC as f64));
+                     (round * batch) as f64 / (dur_to_ns!(start.elapsed()) / NANOS_PER_SEC as f64));
         }
     }).unwrap();
 
