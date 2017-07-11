@@ -217,9 +217,9 @@ fn run_dataflow(articles: usize,
 
         if index == 0 {
             println!("processed {} events in {}s => {}",
-                     round * batch,
+                     round * batch * workers,
                      dur_to_ns!(start.elapsed()) as f64 / NANOS_PER_SEC as f64,
-                     (round * batch) as f64 / (dur_to_ns!(start.elapsed()) / NANOS_PER_SEC as f64));
+                     (round * batch * workers) as f64 / (dur_to_ns!(start.elapsed()) / NANOS_PER_SEC as f64));
         }
     }).unwrap();
 
