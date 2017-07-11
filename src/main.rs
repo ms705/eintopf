@@ -152,7 +152,7 @@ fn run_dataflow(articles: usize,
             (articles_in, votes_in, reads_in, probe)
         });
 
-        let seed: &[_] = &[1, 2, 3, 4];
+        let seed: &[_] = &[1, 2, 3, index];
         let mut rng: StdRng = SeedableRng::from_seed(seed);    // rng for edge additions
 
         let mut writes: Vec<_> = (0 .. articles).collect();
