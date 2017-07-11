@@ -1,5 +1,6 @@
 #[macro_use]
 extern crate clap;
+extern crate nix;
 extern crate differential_dataflow;
 extern crate slog;
 extern crate slog_term;
@@ -68,6 +69,9 @@ fn main() {
             .short("q")
             .long("quiet")
             .help("No noisy output while running"))
+        .arg(Arg::with_name("core-pin")
+            .long("core-pin")
+            .help("Pin workers to specific cores"))
         .arg(Arg::with_name("batch_size")
             .short("b")
             .long("batch-size")
@@ -97,21 +101,38 @@ fn main() {
     let runtime = value_t_or_exit!(args, "runtime", u64);
     let workers = value_t_or_exit!(args, "workers", usize);
     let cluster_cfg = args.value_of("timely_cluster_cfg");
+    let pinning = args.is_present("core-pin");
 
     run_dataflow(narticles,
                  bsize,
                  reads,
                  runtime,
                  workers,
-                 cluster_cfg);
+                 cluster_cfg,
+                 pinning);
 }
+
+#[cfg(target_os = "linux")]
+fn pin_to_core(index:usize, stride: usize) {
+    let mut cpu_set = ::nix::sched::CpuSet::new();
+    let tgt_cpu = index * stride;
+    cpu_set.set(tgt_cpu);
+    let result = ::nix::sched::sched_setaffinity(0, &cpu_set);
+}
+#[cfg(not(target_os = "linux"))]
+fn pin_to_core(_index:usize, _stride: usize) {
+    println!("core pinning: not linux");
+}
+
+
 
 fn run_dataflow(articles: usize,
                 batch: usize,
                 read_mix: usize,
                 runtime: u64,
                 workers: usize,
-                cluster_cfg: Option<&str>) {
+                cluster_cfg: Option<&str>,
+                pinning: bool) {
 
     println!("Batching: {:?}", batch);
 
@@ -131,6 +152,8 @@ fn run_dataflow(articles: usize,
 
         let index = worker.index();
         let peers = worker.peers();
+
+        if pinning { pin_to_core(index, 1); }
 
         // create a a degree counting differential dataflow
         let (mut articles_in, mut votes_in, mut reads_in, probe) = worker.dataflow(|scope| {

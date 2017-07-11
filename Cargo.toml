@@ -4,6 +4,7 @@ version = "0.0.1"
 description = "Static soup using timely data-flow"
 
 [dependencies]
+nix="*"
 clap = "2.13"
 differential-dataflow = { git = "https://github.com/frankmcsherry/differential-dataflow.git" }
 slog = "1.5.2"
