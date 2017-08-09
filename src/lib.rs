@@ -1,11 +1,7 @@
-#[macro_use]
 extern crate abomonation;
 extern crate bincode;
 extern crate nix;
 extern crate differential_dataflow;
-extern crate serde;
-#[macro_use]
-extern crate serde_derive;
 extern crate slog;
 extern crate slog_term;
 extern crate timely;
@@ -14,15 +10,9 @@ extern crate rand;
 
 mod types;
 
-use rand::{Rng, SeedableRng, StdRng};
-use std::time;
 use std::net::TcpListener;
-use std::sync::mpsc::{channel, Receiver};
-
-use abomonation::{encode, decode, Abomonation};
 
 use differential_dataflow::collection::AsCollection;
-use differential_dataflow::input::Input;
 use differential_dataflow::operators::*;
 
 use timely::dataflow::operators::{Inspect, Map, Partition};
