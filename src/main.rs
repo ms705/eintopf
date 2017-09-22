@@ -7,12 +7,66 @@ extern crate slog_term;
 extern crate timely;
 extern crate rand;
 
+extern crate istring;
+extern crate abomonation;
+
 use std::time;
 
 use rand::{Rng, SeedableRng, StdRng};
 
 use differential_dataflow::input::Input;
 use differential_dataflow::operators::*;
+
+use abomonation::Abomonation;
+
+#[derive(Clone, Ord, PartialOrd, Eq, PartialEq, Debug)]
+struct StringWrapper {
+    pub string: istring::IString,
+}
+
+impl Abomonation for StringWrapper {
+    #[inline]
+    unsafe fn embalm(&mut self) {
+        // std::ptr::write(self, String::from_raw_parts(EMPTY as *mut u8, self.len(), self.len()));
+    }
+    #[inline]
+    unsafe fn entomb(&self, bytes: &mut Vec<u8>) {
+        if !self.string.is_inline() {
+            let position = bytes.len();
+            bytes.reserve(self.string.as_bytes().len());
+            ::std::ptr::copy_nonoverlapping(self.string.as_bytes().as_ptr(), bytes.as_mut_ptr().offset(position as isize), self.string.as_bytes().len());
+            bytes.set_len(position + self.string.as_bytes().len());
+        }
+    }
+    #[inline]
+    unsafe fn exhume<'a,'b>(&'a mut self, bytes: &'b mut [u8]) -> Option<&'b mut [u8]> {
+        if !self.string.is_inline() {
+            if self.string.len() > bytes.len() { None }
+            else {
+                let (mine, rest) = bytes.split_at_mut(self.string.len());
+                std::ptr::write(::std::mem::transmute(self.string.as_heap().ptr), mine.as_ptr());
+                Some(rest)
+            }
+        }
+        else {
+            Some(bytes)
+        }
+    }
+}
+
+// impl Eq for StringWrapper { }
+
+// impl PartialOrd for StringWrapper { 
+//     fn partial_cmp(&self, other: &Self) -> Option<::std::cmp::Ordering> {
+//         self.string.as_str().partial_cmp(other.string.as_str())
+//     }
+// }
+
+// impl Ord for StringWrapper { 
+//     fn cmp(&self, other: &Self) -> ::std::cmp::Ordering {
+//         self.string.as_str().cmp(other.string.as_str())
+//     }
+// }
 
 const NANOS_PER_SEC: u64 = 1_000_000_000;
 macro_rules! dur_to_ns {
@@ -84,7 +138,7 @@ fn main() {
             .default_value("19")
             .help("Number of reads to perform for each write"))
         .arg(Arg::with_name("workers")
-            .short("w")
+            .short("z")
             .long("workers")
             .value_name("N")
             .default_value("1")
@@ -190,6 +244,12 @@ fn run_dataflow(articles: usize,
         if index == 0 {
             for aid in 0..articles {
                 articles_in.insert((aid, format!("Article #{}", aid)));
+                // let source = format!("Article #{}", aid);
+                // let string = StringWrapper { string: istring::IString::from(&source[..]) };
+                // articles_in.insert((aid, string));
+                // articles_in.insert((aid, String::new()));
+                // articles_in.insert((aid, aid));
+                // articles_in.insert((aid, ()));
             }
         }
 
