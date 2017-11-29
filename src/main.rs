@@ -9,6 +9,7 @@ extern crate rand;
 
 extern crate istring;
 extern crate abomonation;
+extern crate istring;
 
 use std::time;
 
@@ -18,10 +19,37 @@ use differential_dataflow::input::Input;
 use differential_dataflow::operators::*;
 
 use abomonation::Abomonation;
+use zipf::ZipfDistribution;
 
 #[derive(Clone, Ord, PartialOrd, Eq, PartialEq, Debug)]
 struct StringWrapper {
     pub string: istring::IString,
+}
+
+#[derive(Clone, Copy)]
+pub enum Distribution {
+    Uniform,
+    Zipf(f64),
+}
+
+use std::str::FromStr;
+impl FromStr for Distribution {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s == "uniform" {
+            Ok(Distribution::Uniform)
+        } else if s.starts_with("zipf:") {
+            let s = s.trim_left_matches("zipf:");
+            str::parse::<f64>(s)
+                .map(|exp| Distribution::Zipf(exp))
+                .map_err(|e| {
+                    use std::error::Error;
+                    e.description().to_string()
+                })
+        } else {
+            Err(format!("unknown distribution '{}'", s))
+        }
+    }
 }
 
 impl Abomonation for StringWrapper {
@@ -151,19 +179,23 @@ fn main() {
 
     let narticles = value_t_or_exit!(args, "narticles", usize);
     let bsize = value_t_or_exit!(args, "batch_size", usize);
+    let dist = value_t_or_exit!(args, "distribution", Distribution);
     let reads = value_t_or_exit!(args, "read_mix", usize);
     let runtime = value_t_or_exit!(args, "runtime", u64);
     let workers = value_t_or_exit!(args, "workers", usize);
     let cluster_cfg = args.value_of("timely_cluster_cfg");
     let pinning = args.is_present("core-pin");
 
-    run_dataflow(narticles,
-                 bsize,
-                 reads,
-                 runtime,
-                 workers,
-                 cluster_cfg,
-                 pinning);
+    run_dataflow(
+        narticles,
+        bsize,
+        reads,
+        runtime,
+        workers,
+        cluster_cfg,
+        pinning,
+        dist,
+    );
 }
 
 #[cfg(target_os = "linux")]
@@ -180,14 +212,16 @@ fn pin_to_core(_index:usize, _stride: usize) {
 
 
 
-fn run_dataflow(articles: usize,
-                batch: usize,
-                read_mix: usize,
-                runtime: u64,
-                workers: usize,
-                cluster_cfg: Option<&str>,
-                pinning: bool) {
-
+fn run_dataflow(
+    articles: usize,
+    batch: usize,
+    read_mix: usize,
+    runtime: u64,
+    workers: usize,
+    cluster_cfg: Option<&str>,
+    pinning: bool,
+    distribution: Distribution,
+) {
     println!("Batching: {:?}", batch);
 
     let tc = match cluster_cfg {
@@ -230,13 +264,22 @@ fn run_dataflow(articles: usize,
         });
 
         let seed: &[_] = &[1, 2, 3, index];
-        let mut rng: StdRng = SeedableRng::from_seed(seed);    // rng for edge additions
 
-        let mut writes: Vec<_> = (0 .. articles).collect();
-        rng.shuffle(&mut writes);
+        let n = articles;
+        let get_random = || match distribution {
+            Distribution::Uniform => {
+                let mut u: StdRng = SeedableRng::from_seed(seed);
+                (0..n).map(|_| u.gen_range(0, articles) as usize).collect()
+            }
+            Distribution::Zipf(e) => {
+                let mut z =
+                    ZipfDistribution::new(rand::thread_rng(), articles as usize, e).unwrap();
+                (0..n).map(|_| z.gen_range(0, articles) as usize).collect()
+            }
+        };
 
-        let mut reads: Vec<_> = (0 .. articles).collect();
-        rng.shuffle(&mut reads);
+        let mut writes: Vec<_> = get_random();
+        let mut reads: Vec<_> = get_random();
 
         let timer = time::Instant::now();
 
