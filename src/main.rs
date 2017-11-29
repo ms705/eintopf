@@ -1,14 +1,14 @@
 #[macro_use]
 extern crate clap;
-extern crate nix;
 extern crate differential_dataflow;
+extern crate nix;
+extern crate rand;
 extern crate slog;
 extern crate slog_term;
 extern crate timely;
-extern crate rand;
 
-extern crate istring;
 extern crate abomonation;
+extern crate istring;
 extern crate istring;
 
 use std::time;
@@ -62,21 +62,28 @@ impl Abomonation for StringWrapper {
         if !self.string.is_inline() {
             let position = bytes.len();
             bytes.reserve(self.string.as_bytes().len());
-            ::std::ptr::copy_nonoverlapping(self.string.as_bytes().as_ptr(), bytes.as_mut_ptr().offset(position as isize), self.string.as_bytes().len());
+            ::std::ptr::copy_nonoverlapping(
+                self.string.as_bytes().as_ptr(),
+                bytes.as_mut_ptr().offset(position as isize),
+                self.string.as_bytes().len(),
+            );
             bytes.set_len(position + self.string.as_bytes().len());
         }
     }
     #[inline]
-    unsafe fn exhume<'a,'b>(&'a mut self, bytes: &'b mut [u8]) -> Option<&'b mut [u8]> {
+    unsafe fn exhume<'a, 'b>(&'a mut self, bytes: &'b mut [u8]) -> Option<&'b mut [u8]> {
         if !self.string.is_inline() {
-            if self.string.len() > bytes.len() { None }
-            else {
+            if self.string.len() > bytes.len() {
+                None
+            } else {
                 let (mine, rest) = bytes.split_at_mut(self.string.len());
-                std::ptr::write(::std::mem::transmute(self.string.as_heap().ptr), mine.as_ptr());
+                std::ptr::write(
+                    ::std::mem::transmute(self.string.as_heap().ptr),
+                    mine.as_ptr(),
+                );
                 Some(rest)
             }
-        }
-        else {
+        } else {
             Some(bytes)
         }
     }
@@ -84,13 +91,13 @@ impl Abomonation for StringWrapper {
 
 // impl Eq for StringWrapper { }
 
-// impl PartialOrd for StringWrapper { 
+// impl PartialOrd for StringWrapper {
 //     fn partial_cmp(&self, other: &Self) -> Option<::std::cmp::Ordering> {
 //         self.string.as_str().partial_cmp(other.string.as_str())
 //     }
 // }
 
-// impl Ord for StringWrapper { 
+// impl Ord for StringWrapper {
 //     fn cmp(&self, other: &Self) -> ::std::cmp::Ordering {
 //         self.string.as_str().cmp(other.string.as_str())
 //     }
@@ -105,76 +112,104 @@ macro_rules! dur_to_ns {
 }
 
 fn main() {
-    use clap::{Arg, App};
+    use clap::{App, Arg};
 
     let args = App::new("vote")
         .version("0.1")
         .about("Benchmarks user-curated news aggregator throughput for in-memory Soup")
-        .arg(Arg::with_name("avg")
-            .long("avg")
-            .takes_value(false)
-            .help("compute average throughput at the end of benchmark"))
-        .arg(Arg::with_name("cdf")
-            .short("c")
-            .long("cdf")
-            .takes_value(false)
-            .help("produce a CDF of recorded latencies for each client at the end"))
-        .arg(Arg::with_name("stage")
-            .short("s")
-            .long("stage")
-            .takes_value(false)
-            .help("stage execution such that all writes are performed before all reads"))
-        .arg(Arg::with_name("distribution")
-            .short("d")
-            .takes_value(true)
-            .default_value("uniform")
-            .help("run benchmark with the given article id distribution [uniform|zipf:exponent]"))
-        .arg(Arg::with_name("ngetters")
-            .short("g")
-            .long("getters")
-            .value_name("N")
-            .default_value("1")
-            .help("Number of GET clients to start"))
-        .arg(Arg::with_name("narticles")
-            .short("a")
-            .long("articles")
-            .value_name("N")
-            .default_value("100000")
-            .help("Number of articles to prepopulate the database with"))
-        .arg(Arg::with_name("runtime")
-            .short("r")
-            .long("runtime")
-            .value_name("N")
-            .default_value("60")
-            .help("Benchmark runtime in seconds"))
-        .arg(Arg::with_name("quiet")
-            .short("q")
-            .long("quiet")
-            .help("No noisy output while running"))
-        .arg(Arg::with_name("core-pin")
-            .long("core-pin")
-            .help("Pin workers to specific cores"))
-        .arg(Arg::with_name("batch_size")
-            .short("b")
-            .long("batch-size")
-            .takes_value(true)
-            .default_value("1000")
-            .help("Input batch size to use."))
-        .arg(Arg::with_name("read_mix")
-            .long("read-mix")
-            .takes_value(true)
-            .default_value("19")
-            .help("Number of reads to perform for each write"))
-        .arg(Arg::with_name("workers")
-            .short("z")
-            .long("workers")
-            .value_name("N")
-            .default_value("1")
-            .help("Number of worker threads"))
-        .arg(Arg::with_name("timely_cluster_cfg")
-            .long("timely-cluster")
-            .takes_value(true)
-            .help("Cluster config string to pass to timely."))
+        .arg(
+            Arg::with_name("avg")
+                .long("avg")
+                .takes_value(false)
+                .help("compute average throughput at the end of benchmark"),
+        )
+        .arg(
+            Arg::with_name("cdf")
+                .short("c")
+                .long("cdf")
+                .takes_value(false)
+                .help("produce a CDF of recorded latencies for each client at the end"),
+        )
+        .arg(
+            Arg::with_name("stage")
+                .short("s")
+                .long("stage")
+                .takes_value(false)
+                .help("stage execution such that all writes are performed before all reads"),
+        )
+        .arg(
+            Arg::with_name("distribution")
+                .short("d")
+                .takes_value(true)
+                .default_value("uniform")
+                .help(
+                    "run benchmark with the given article id distribution [uniform|zipf:exponent]",
+                ),
+        )
+        .arg(
+            Arg::with_name("ngetters")
+                .short("g")
+                .long("getters")
+                .value_name("N")
+                .default_value("1")
+                .help("Number of GET clients to start"),
+        )
+        .arg(
+            Arg::with_name("narticles")
+                .short("a")
+                .long("articles")
+                .value_name("N")
+                .default_value("100000")
+                .help("Number of articles to prepopulate the database with"),
+        )
+        .arg(
+            Arg::with_name("runtime")
+                .short("r")
+                .long("runtime")
+                .value_name("N")
+                .default_value("60")
+                .help("Benchmark runtime in seconds"),
+        )
+        .arg(
+            Arg::with_name("quiet")
+                .short("q")
+                .long("quiet")
+                .help("No noisy output while running"),
+        )
+        .arg(
+            Arg::with_name("core-pin")
+                .long("core-pin")
+                .help("Pin workers to specific cores"),
+        )
+        .arg(
+            Arg::with_name("batch_size")
+                .short("b")
+                .long("batch-size")
+                .takes_value(true)
+                .default_value("1000")
+                .help("Input batch size to use."),
+        )
+        .arg(
+            Arg::with_name("read_mix")
+                .long("read-mix")
+                .takes_value(true)
+                .default_value("19")
+                .help("Number of reads to perform for each write"),
+        )
+        .arg(
+            Arg::with_name("workers")
+                .short("z")
+                .long("workers")
+                .value_name("N")
+                .default_value("1")
+                .help("Number of worker threads"),
+        )
+        .arg(
+            Arg::with_name("timely_cluster_cfg")
+                .long("timely-cluster")
+                .takes_value(true)
+                .help("Cluster config string to pass to timely."),
+        )
         .get_matches();
 
     let narticles = value_t_or_exit!(args, "narticles", usize);
@@ -199,14 +234,14 @@ fn main() {
 }
 
 #[cfg(target_os = "linux")]
-fn pin_to_core(index:usize, stride: usize) {
+fn pin_to_core(index: usize, stride: usize) {
     let mut cpu_set = ::nix::sched::CpuSet::new();
     let tgt_cpu = index * stride;
     cpu_set.set(tgt_cpu);
     let result = ::nix::sched::sched_setaffinity(0, &cpu_set);
 }
 #[cfg(not(target_os = "linux"))]
-fn pin_to_core(_index:usize, _stride: usize) {
+fn pin_to_core(_index: usize, _stride: usize) {
     println!("core pinning: not linux");
 }
 
@@ -226,39 +261,37 @@ fn run_dataflow(
 
     let tc = match cluster_cfg {
         None => timely::Configuration::Process(workers),
-        Some(ref cc) => {
-            timely::Configuration::from_args(cc.split(" ")
-                                                 .map(String::from)
-                                                 .collect::<Vec<_>>()
-                                                 .into_iter())
-                    .unwrap()
-        }
+        Some(ref cc) => timely::Configuration::from_args(
+            cc.split(" ")
+                .map(String::from)
+                .collect::<Vec<_>>()
+                .into_iter(),
+        ).unwrap(),
     };
 
     // set up the dataflow
     timely::execute(tc, move |worker| {
-
         let index = worker.index();
         let peers = worker.peers();
 
-        if pinning { pin_to_core(index, 1); }
+        if pinning {
+            pin_to_core(index, 1);
+        }
 
         // create a a degree counting differential dataflow
         let (mut articles_in, mut votes_in, mut reads_in, probe) = worker.dataflow(|scope| {
-
             // create input for read request.
             let (reads_in, reads) = scope.new_collection();
             let (articles_in, articles) = scope.new_collection();
             let (votes_in, votes) = scope.new_collection();
 
             // merge votes with articles, to ensure counts for un-voted articles.
-            let votes = votes.map(|(aid, _uid)| aid)
-                             .concat(&articles.map(|(aid, _title)| aid));
+            let votes = votes
+                .map(|(aid, _uid)| aid)
+                .concat(&articles.map(|(aid, _title)| aid));
 
             // capture artices and votes, restrict by query article ids.
-            let probe = articles.semijoin_u(&votes)
-                                .semijoin_u(&reads)
-                                .probe();
+            let probe = articles.semijoin_u(&votes).semijoin_u(&reads).probe();
 
             (articles_in, votes_in, reads_in, probe)
         });
@@ -298,8 +331,10 @@ fn run_dataflow(
 
         // we're done adding articles
         articles_in.close();
-        votes_in.advance_to(1); votes_in.flush();
-        reads_in.advance_to(1); reads_in.flush();
+        votes_in.advance_to(1);
+        votes_in.flush();
+        reads_in.advance_to(1);
+        reads_in.flush();
         worker.step_while(|| probe.less_than(votes_in.time()));
 
         if index == 0 {
@@ -311,9 +346,7 @@ fn run_dataflow(
         let mut round = 1;
 
         while start.elapsed() < time::Duration::from_millis(runtime * 1000) {
-
-            for count in 0 .. batch {
-
+            for count in 0..batch {
                 let local_step = round * batch + count;
                 let logical_time = local_step * peers + index;
 
@@ -321,20 +354,20 @@ fn run_dataflow(
                 if local_step % (read_mix + 1) == 0 {
                     votes_in.advance_to(logical_time);
                     votes_in.insert((writes[local_step % writes.len()], 0))
-                } 
-                else {
+                } else {
                     reads_in.advance_to(logical_time);
                     reads_in.insert(reads[local_step % writes.len()]);
                     reads_in.advance_to(logical_time + 1);
                     reads_in.remove(reads[local_step % writes.len()]);
-                }   
-
+                }
             }
 
             round += 1;
 
-            votes_in.advance_to(round * batch * peers); votes_in.flush();
-            reads_in.advance_to(round * batch * peers); reads_in.flush();
+            votes_in.advance_to(round * batch * peers);
+            votes_in.flush();
+            reads_in.advance_to(round * batch * peers);
+            reads_in.flush();
             worker.step_while(|| probe.less_than(votes_in.time()));
         }
 
@@ -342,10 +375,13 @@ fn run_dataflow(
         round -= 1;
 
         if index == 0 {
-            println!("processed {} events in {}s => {}",
-                     round * batch * workers,
-                     dur_to_ns!(start.elapsed()) as f64 / NANOS_PER_SEC as f64,
-                     (round * batch * workers) as f64 / (dur_to_ns!(start.elapsed()) / NANOS_PER_SEC as f64));
+            println!(
+                "processed {} events in {}s => {}",
+                round * batch * workers,
+                dur_to_ns!(start.elapsed()) as f64 / NANOS_PER_SEC as f64,
+                (round * batch * workers) as f64
+                    / (dur_to_ns!(start.elapsed()) / NANOS_PER_SEC as f64)
+            );
         }
     }).unwrap();
 
