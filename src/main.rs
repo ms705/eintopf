@@ -1,3 +1,4 @@
+extern crate abomonation;
 #[macro_use]
 extern crate clap;
 extern crate differential_dataflow;
@@ -6,10 +7,7 @@ extern crate rand;
 extern crate slog;
 extern crate slog_term;
 extern crate timely;
-
-extern crate abomonation;
-extern crate istring;
-extern crate istring;
+extern crate zipf;
 
 use std::time;
 
@@ -21,10 +19,10 @@ use differential_dataflow::operators::*;
 use abomonation::Abomonation;
 use zipf::ZipfDistribution;
 
-#[derive(Clone, Ord, PartialOrd, Eq, PartialEq, Debug)]
+/*#[derive(Clone, Ord, PartialOrd, Eq, PartialEq, Debug)]
 struct StringWrapper {
     pub string: istring::IString,
-}
+}*/
 
 #[derive(Clone, Copy)]
 pub enum Distribution {
@@ -52,7 +50,7 @@ impl FromStr for Distribution {
     }
 }
 
-impl Abomonation for StringWrapper {
+/*impl Abomonation for StringWrapper {
     #[inline]
     unsafe fn embalm(&mut self) {
         // std::ptr::write(self, String::from_raw_parts(EMPTY as *mut u8, self.len(), self.len()));
@@ -87,7 +85,7 @@ impl Abomonation for StringWrapper {
             Some(bytes)
         }
     }
-}
+}*/
 
 // impl Eq for StringWrapper { }
 
@@ -238,14 +236,12 @@ fn pin_to_core(index: usize, stride: usize) {
     let mut cpu_set = ::nix::sched::CpuSet::new();
     let tgt_cpu = index * stride;
     cpu_set.set(tgt_cpu);
-    let result = ::nix::sched::sched_setaffinity(0, &cpu_set);
+    let result = ::nix::sched::sched_setaffinity(::nix::unistd::Pid::from_raw(0), &cpu_set);
 }
 #[cfg(not(target_os = "linux"))]
 fn pin_to_core(_index: usize, _stride: usize) {
     println!("core pinning: not linux");
 }
-
-
 
 fn run_dataflow(
     articles: usize,
