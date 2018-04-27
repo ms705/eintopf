@@ -388,9 +388,9 @@ fn run_dataflow(
         if index == 0 {
             println!(
                 "processed {} events in {}s => {}",
-                round * batch * workers * peers,
+                round * batch * peers,
                 dur_to_ns!(start.elapsed()) as f64 / NANOS_PER_SEC as f64,
-                (round * batch * workers * peers) as f64
+                (round * batch * peers) as f64
                     / (dur_to_ns!(start.elapsed()) / NANOS_PER_SEC as f64)
             );
         }
