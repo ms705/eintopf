@@ -9,7 +9,7 @@ extern crate slog_term;
 extern crate timely;
 extern crate zipf;
 
-use std::time;
+use std::{fs, time};
 
 use rand::{Rng, SeedableRng, StdRng};
 
@@ -203,10 +203,20 @@ fn main() {
                 .help("Number of worker threads"),
         )
         .arg(
-            Arg::with_name("timely_cluster_cfg")
-                .long("timely-cluster")
+            Arg::with_name("host_file")
+                .short("h")
+                .long("hosts")
                 .takes_value(true)
-                .help("Cluster config string to pass to timely."),
+                .requires("process_id")
+                .help("File with IP:PORT of processes in timely cluster."),
+        )
+        .arg(
+            Arg::with_name("process_id")
+                .short("p")
+                .long("process")
+                .takes_value(true)
+                .requires("host_file")
+                .help("Process ID in timely cluster."),
         )
         .get_matches();
 
@@ -216,7 +226,9 @@ fn main() {
     let reads = value_t_or_exit!(args, "read_mix", usize);
     let runtime = value_t_or_exit!(args, "runtime", u64);
     let workers = value_t_or_exit!(args, "workers", usize);
-    let cluster_cfg = args.value_of("timely_cluster_cfg");
+    let host_file = args.value_of("host_file");
+    let process_id = args.value_of("process_id")
+        .map(|s| usize::from_str(s).unwrap());
     let pinning = args.is_present("core-pin");
 
     run_dataflow(
@@ -225,7 +237,8 @@ fn main() {
         reads,
         runtime,
         workers,
-        cluster_cfg,
+        host_file,
+        process_id,
         pinning,
         dist,
     );
@@ -249,21 +262,23 @@ fn run_dataflow(
     read_mix: usize,
     runtime: u64,
     workers: usize,
-    cluster_cfg: Option<&str>,
+    host_file: Option<&str>,
+    process_id: Option<usize>,
     pinning: bool,
     distribution: Distribution,
 ) {
-    println!("Batching: {:?}", batch);
-
-    let tc = match cluster_cfg {
+    let tc = match host_file {
         None => timely::Configuration::Process(workers),
-        Some(ref cc) => timely::Configuration::from_args(
-            cc.split(" ")
+        Some(ref hf) => {
+            let host_list = String::from_utf8_lossy(&fs::read(hf).unwrap())
+                .lines()
                 .map(String::from)
-                .collect::<Vec<_>>()
-                .into_iter(),
-        ).unwrap(),
+                .collect();
+            timely::Configuration::Cluster(workers, process_id.unwrap(), host_list, false)
+        }
     };
+
+    println!("Batching: {:?}", batch);
 
     // set up the dataflow
     timely::execute(tc, move |worker| {
