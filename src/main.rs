@@ -1,4 +1,4 @@
-extern crate abomonation;
+//extern crate abomonation;
 #[macro_use]
 extern crate clap;
 extern crate differential_dataflow;
@@ -22,13 +22,13 @@ use differential_dataflow::operators::arrange::ArrangeByKey;
 use differential_dataflow::input::Input;
 use differential_dataflow::operators::*;
 
-use abomonation::Abomonation;
+//use abomonation::Abomonation;
 use zipf::ZipfDistribution;
 
-#[derive(Clone, Ord, PartialOrd, Eq, PartialEq, Debug)]
-struct StringWrapper {
-    pub string: istring::IString,
-}
+// #[derive(Clone, Ord, PartialOrd, Eq, PartialEq, Debug)]
+// struct StringWrapper {
+//     pub string: istring::IString,
+// }
 
 #[derive(Clone, Copy)]
 pub enum Distribution {
@@ -56,55 +56,33 @@ impl FromStr for Distribution {
     }
 }
 
-use std::io::Write; // for bytes.write_all; push_all is unstable and extend is slow.
-use std::io::Result as IOResult;
+// use std::io::Write;
+// use std::io::Result as IOResult;
 
-impl Abomonation for StringWrapper {
-    #[inline]
-    unsafe fn entomb<W: Write>(&self, write: &mut W) -> IOResult<()>{
-        if !self.string.is_inline() {
-            write.write_all(self.string.as_bytes())?;
-            // let position = bytes.len();
-            // bytes.reserve(self.string.as_bytes().len());
-            // ::std::ptr::copy_nonoverlapping(
-            //     self.string.as_bytes().as_ptr(),
-            //     bytes.as_mut_ptr().offset(position as isize),
-            //     self.string.as_bytes().len(),
-            // );
-            // bytes.set_len(position + self.string.as_bytes().len());
-        }
-        Ok(())
-    }
-    #[inline]
-    unsafe fn exhume<'a, 'b>(&'a mut self, bytes: &'b mut [u8]) -> Option<&'b mut [u8]> {
-        if !self.string.is_inline() {
-            if self.string.len() > bytes.len() {
-                None
-            } else {
-                let (mine, rest) = bytes.split_at_mut(self.string.len());
-                std::ptr::write(
-                    ::std::mem::transmute(self.string.as_heap().ptr),
-                    mine.as_ptr(),
-                );
-                Some(rest)
-            }
-        } else {
-            Some(bytes)
-        }
-    }
-}
-
-// impl Eq for StringWrapper { }
-
-// impl PartialOrd for StringWrapper {
-//     fn partial_cmp(&self, other: &Self) -> Option<::std::cmp::Ordering> {
-//         self.string.as_str().partial_cmp(other.string.as_str())
+// impl Abomonation for StringWrapper {
+//     #[inline]
+//     unsafe fn entomb<W: Write>(&self, write: &mut W) -> IOResult<()>{
+//         if !self.string.is_inline() {
+//             write.write_all(self.string.as_bytes())?;
+//         }
+//         Ok(())
 //     }
-// }
-
-// impl Ord for StringWrapper {
-//     fn cmp(&self, other: &Self) -> ::std::cmp::Ordering {
-//         self.string.as_str().cmp(other.string.as_str())
+//     #[inline]
+//     unsafe fn exhume<'a, 'b>(&'a mut self, bytes: &'b mut [u8]) -> Option<&'b mut [u8]> {
+//         if !self.string.is_inline() {
+//             if self.string.len() > bytes.len() {
+//                 None
+//             } else {
+//                 let (mine, rest) = bytes.split_at_mut(self.string.len());
+//                 std::ptr::write(
+//                     ::std::mem::transmute(self.string.as_heap().ptr),
+//                     mine.as_ptr(),
+//                 );
+//                 Some(rest)
+//             }
+//         } else {
+//             Some(bytes)
+//         }
 //     }
 // }
 
@@ -262,8 +240,8 @@ fn main() {
 fn pin_to_core(index: usize, stride: usize) {
     let mut cpu_set = ::nix::sched::CpuSet::new();
     let tgt_cpu = index * stride;
-    cpu_set.set(tgt_cpu);
-    let result = ::nix::sched::sched_setaffinity(::nix::unistd::Pid::from_raw(0), &cpu_set);
+    cpu_set.set(tgt_cpu).unwrap();
+    ::nix::sched::sched_setaffinity(::nix::unistd::Pid::from_raw(0), &cpu_set).unwrap()
 }
 #[cfg(not(target_os = "linux"))]
 fn pin_to_core(_index: usize, _stride: usize) {
@@ -408,9 +386,10 @@ fn run_dataflow(
 
             if index == 0 {
                 println!(
-                    "processed {} events in {}s => {}",
+                    "processed {} events in {}s over {} peers => {}",
                     round * batch * peers,
                     dur_to_ns!(start.elapsed()) as f64 / NANOS_PER_SEC as f64,
+                    peers,
                     (round * batch * peers) as f64
                         / (dur_to_ns!(start.elapsed()) / NANOS_PER_SEC as f64)
                 );
@@ -511,11 +490,6 @@ fn run_dataflow(
                 }
             }
         }
-
-
-
-
-
     }).unwrap();
 
     println!("Done");
