@@ -302,7 +302,7 @@ fn run_dataflow(
                 .concat(&articles.map(|(aid, _title)| aid));
 
             // capture artices and votes, restrict by query article ids.
-            let probe = articles.semijoin_u(&votes).semijoin_u(&reads).probe();
+            let probe = articles.semijoin(&votes).semijoin(&reads).probe();
 
             (articles_in, votes_in, reads_in, probe)
         });
