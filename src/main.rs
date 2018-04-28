@@ -1,4 +1,4 @@
-extern crate abomonation;
+//extern crate abomonation;
 #[macro_use]
 extern crate clap;
 extern crate differential_dataflow;
@@ -16,7 +16,7 @@ use rand::{Rng, SeedableRng, StdRng};
 use differential_dataflow::input::Input;
 use differential_dataflow::operators::*;
 
-use abomonation::Abomonation;
+//use abomonation::Abomonation;
 use zipf::ZipfDistribution;
 
 /*#[derive(Clone, Ord, PartialOrd, Eq, PartialEq, Debug)]
@@ -248,8 +248,8 @@ fn main() {
 fn pin_to_core(index: usize, stride: usize) {
     let mut cpu_set = ::nix::sched::CpuSet::new();
     let tgt_cpu = index * stride;
-    cpu_set.set(tgt_cpu);
-    let result = ::nix::sched::sched_setaffinity(::nix::unistd::Pid::from_raw(0), &cpu_set);
+    cpu_set.set(tgt_cpu).unwrap();
+    ::nix::sched::sched_setaffinity(::nix::unistd::Pid::from_raw(0), &cpu_set).unwrap()
 }
 #[cfg(not(target_os = "linux"))]
 fn pin_to_core(_index: usize, _stride: usize) {
@@ -322,8 +322,8 @@ fn run_dataflow(
             }
         };
 
-        let mut writes: Vec<_> = get_random();
-        let mut reads: Vec<_> = get_random();
+        let writes: Vec<_> = get_random();
+        let reads: Vec<_> = get_random();
 
         let timer = time::Instant::now();
 
