@@ -1,4 +1,4 @@
-//extern crate abomonation;
+extern crate abomonation;
 #[macro_use]
 extern crate clap;
 extern crate differential_dataflow;
@@ -22,13 +22,13 @@ use differential_dataflow::operators::arrange::ArrangeByKey;
 use differential_dataflow::input::Input;
 use differential_dataflow::operators::*;
 
-//use abomonation::Abomonation;
+use abomonation::Abomonation;
 use zipf::ZipfDistribution;
 
-// #[derive(Clone, Ord, PartialOrd, Eq, PartialEq, Debug)]
-// struct StringWrapper {
-//     pub string: istring::IString,
-// }
+#[derive(Clone, Ord, PartialOrd, Eq, PartialEq, Debug)]
+struct StringWrapper {
+    pub string: istring::IString,
+}
 
 #[derive(Clone, Copy)]
 pub enum Distribution {
@@ -56,35 +56,35 @@ impl FromStr for Distribution {
     }
 }
 
-// use std::io::Write;
-// use std::io::Result as IOResult;
+use std::io::Write;
+use std::io::Result as IOResult;
 
-// impl Abomonation for StringWrapper {
-//     #[inline]
-//     unsafe fn entomb<W: Write>(&self, write: &mut W) -> IOResult<()>{
-//         if !self.string.is_inline() {
-//             write.write_all(self.string.as_bytes())?;
-//         }
-//         Ok(())
-//     }
-//     #[inline]
-//     unsafe fn exhume<'a, 'b>(&'a mut self, bytes: &'b mut [u8]) -> Option<&'b mut [u8]> {
-//         if !self.string.is_inline() {
-//             if self.string.len() > bytes.len() {
-//                 None
-//             } else {
-//                 let (mine, rest) = bytes.split_at_mut(self.string.len());
-//                 std::ptr::write(
-//                     ::std::mem::transmute(self.string.as_heap().ptr),
-//                     mine.as_ptr(),
-//                 );
-//                 Some(rest)
-//             }
-//         } else {
-//             Some(bytes)
-//         }
-//     }
-// }
+impl Abomonation for StringWrapper {
+    #[inline]
+    unsafe fn entomb<W: Write>(&self, write: &mut W) -> IOResult<()>{
+        if !self.string.is_inline() {
+            write.write_all(self.string.as_bytes())?;
+        }
+        Ok(())
+    }
+    #[inline]
+    unsafe fn exhume<'a, 'b>(&'a mut self, bytes: &'b mut [u8]) -> Option<&'b mut [u8]> {
+        if !self.string.is_inline() {
+            if self.string.len() > bytes.len() {
+                None
+            } else {
+                let (mine, rest) = bytes.split_at_mut(self.string.len());
+                std::ptr::write(
+                    ::std::mem::transmute(self.string.as_heap().ptr),
+                    mine.as_ptr(),
+                );
+                Some(rest)
+            }
+        } else {
+            Some(bytes)
+        }
+    }
+}
 
 const NANOS_PER_SEC: u64 = 1_000_000_000;
 macro_rules! dur_to_ns {
@@ -291,7 +291,7 @@ fn run_dataflow(
             // merge votes with articles, to ensure counts for un-voted articles.
             let votes = votes
                 .map(|(aid, _uid)| aid)
-                .concat(&articles.map(|(aid, _title)| aid));
+                .concat(&articles.map(|(aid, _title): (usize, StringWrapper)| aid));
 
             // capture artices and votes, restrict by query article ids.
             // let probe = articles.semijoin(&votes).semijoin(&reads).probe();
@@ -323,10 +323,10 @@ fn run_dataflow(
         // prepopulate articles
         if index == 0 {
             for aid in 0..articles {
-                articles_in.insert((aid, format!("Article #{}", aid)));
-                // let source = format!("Article #{}", aid);
-                // let string = StringWrapper { string: istring::IString::from(&source[..]) };
-                // articles_in.insert((aid, string));
+                // articles_in.insert((aid, format!("Article #{}", aid)));
+                let source = format!("Article #{}", aid);
+                let string = StringWrapper { string: istring::IString::from(&source[..]) };
+                articles_in.insert((aid, string));
                 // articles_in.insert((aid, String::new()));
                 // articles_in.insert((aid, aid));
                 // articles_in.insert((aid, ()));
