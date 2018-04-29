@@ -345,13 +345,12 @@ fn run_dataflow(
             println!("Loading finished after {:?}", timer.elapsed());
         }
 
+        let start = time::Instant::now();
         if !open_loop {
 
             println!("ClosedLoop; Batching: {:?}", batch);
 
-
             // now run the throughput measurement
-            let start = time::Instant::now();
             let mut round = 1;
 
             while start.elapsed() < time::Duration::from_millis(runtime * 1000) {
@@ -485,6 +484,16 @@ fn run_dataflow(
                         sum += counts[index][sub];
                     }
                 }
+
+                println!(
+                    "processed {} events in {}s over {} peers => {}",
+                    total * peers as u64,
+                    dur_to_ns!(start.elapsed()) as f64 / NANOS_PER_SEC as f64,
+                    peers,
+                    (total * peers as u64) as f64
+                        / (dur_to_ns!(start.elapsed()) / NANOS_PER_SEC as f64)
+                );
+
                 for (latency, fraction) in results.drain(..).rev() {
                     println!("\t{}\t{}", latency, fraction);
                 }
