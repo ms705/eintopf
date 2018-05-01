@@ -10,7 +10,7 @@ extern crate timely;
 extern crate zipf;
 extern crate istring;
 
-use std::{fs, time};
+use std::{fs, thread, time};
 
 use rand::{Rng, SeedableRng, StdRng};
 
@@ -500,6 +500,8 @@ fn run_dataflow(
             }
         }
     }).unwrap();
+
+    thread::sleep(time::Duration::from_secs(5));
 
     println!("Done");
 }
