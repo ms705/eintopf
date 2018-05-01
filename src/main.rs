@@ -501,7 +501,7 @@ fn run_dataflow(
         }
     }).unwrap();
 
-    thread::sleep(time::Duration::from_secs(15));
+    thread::sleep(time::Duration::from_secs(30));
 
     println!("Done");
 }
