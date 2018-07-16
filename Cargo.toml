@@ -6,10 +6,11 @@ description = "Static soup using timely data-flow"
 [dependencies]
 abomonation="0.5"
 #istring="0.1.7"
-istring = { git = "https://github.com/s3bk/istring/" }
+#istring = { git = "https://gitlab.com/sebk/istring.git" }
+istring = { path = "istring" }
 nix="*"
 clap = "2.13"
-differential-dataflow = { git = "https://github.com/frankmcsherry/differential-dataflow.git" }
+differential-dataflow = { git = "https://github.com/frankmcsherry/differential-dataflow.git", rev = "801244e5d0e7b800aa627373c18ddbcb5e3d4c54" }
 #differential-dataflow = { path = "../differential-dataflow" }
 #differential-dataflow = "0.5.0"
 slog = "1.5.2"
