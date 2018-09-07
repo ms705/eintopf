@@ -2,24 +2,24 @@ extern crate abomonation;
 #[macro_use]
 extern crate clap;
 extern crate differential_dataflow;
+extern crate istring;
 extern crate nix;
 extern crate rand;
 extern crate slog;
 extern crate slog_term;
 extern crate timely;
 extern crate zipf;
-extern crate istring;
 
 use std::{fs, thread, time};
 
 use rand::{Rng, SeedableRng, StdRng};
 
-use timely::dataflow::operators::Probe;
 use timely::dataflow::operators::Input as TimelyInput;
+use timely::dataflow::operators::Probe;
 use timely::progress::timestamp::RootTimestamp;
 
-use differential_dataflow::operators::arrange::ArrangeByKey;
 use differential_dataflow::input::Input;
+use differential_dataflow::operators::arrange::ArrangeByKey;
 use differential_dataflow::operators::*;
 
 use abomonation::Abomonation;
@@ -56,12 +56,12 @@ impl FromStr for Distribution {
     }
 }
 
-use std::io::Write;
 use std::io::Result as IOResult;
+use std::io::Write;
 
 impl Abomonation for StringWrapper {
     #[inline]
-    unsafe fn entomb<W: Write>(&self, write: &mut W) -> IOResult<()>{
+    unsafe fn entomb<W: Write>(&self, write: &mut W) -> IOResult<()> {
         if !self.string.is_inline() {
             write.write_all(self.string.as_bytes())?;
         }
@@ -91,7 +91,7 @@ macro_rules! dur_to_ns {
     ($d:expr) => {{
         let d = $d;
         (d.as_secs() * NANOS_PER_SEC + d.subsec_nanos() as u64) as f64
-    }}
+    }};
 }
 
 fn main() {
@@ -104,28 +104,24 @@ fn main() {
             Arg::with_name("open-loop")
                 .long("open-loop")
                 .help("Run open-loop (vs closed-loop)"),
-        )
-        .arg(
+        ).arg(
             Arg::with_name("avg")
                 .long("avg")
                 .takes_value(false)
                 .help("compute average throughput at the end of benchmark"),
-        )
-        .arg(
+        ).arg(
             Arg::with_name("cdf")
                 .short("c")
                 .long("cdf")
                 .takes_value(false)
                 .help("produce a CDF of recorded latencies for each client at the end"),
-        )
-        .arg(
+        ).arg(
             Arg::with_name("stage")
                 .short("s")
                 .long("stage")
                 .takes_value(false)
                 .help("stage execution such that all writes are performed before all reads"),
-        )
-        .arg(
+        ).arg(
             Arg::with_name("distribution")
                 .short("d")
                 .takes_value(true)
@@ -133,82 +129,71 @@ fn main() {
                 .help(
                     "run benchmark with the given article id distribution [uniform|zipf:exponent]",
                 ),
-        )
-        .arg(
+        ).arg(
             Arg::with_name("ngetters")
                 .short("g")
                 .long("getters")
                 .value_name("N")
                 .default_value("1")
                 .help("Number of GET clients to start"),
-        )
-        .arg(
+        ).arg(
             Arg::with_name("narticles")
                 .short("a")
                 .long("articles")
                 .value_name("N")
                 .default_value("100000")
                 .help("Number of articles to prepopulate the database with"),
-        )
-        .arg(
+        ).arg(
             Arg::with_name("runtime")
                 .short("r")
                 .long("runtime")
                 .value_name("N")
                 .default_value("60")
                 .help("Benchmark runtime in seconds"),
-        )
-        .arg(
+        ).arg(
             Arg::with_name("quiet")
                 .short("q")
                 .long("quiet")
                 .help("No noisy output while running"),
-        )
-        .arg(
+        ).arg(
             Arg::with_name("core-pin")
                 .long("core-pin")
                 .help("Pin workers to specific cores"),
-        )
-        .arg(
+        ).arg(
             Arg::with_name("batch_size")
                 .short("b")
                 .long("batch-size")
                 .takes_value(true)
                 .default_value("1000")
                 .help("Input batch size to use."),
-        )
-        .arg(
+        ).arg(
             Arg::with_name("read_mix")
                 .long("read-mix")
                 .takes_value(true)
                 .default_value("19")
                 .help("Number of reads to perform for each write"),
-        )
-        .arg(
+        ).arg(
             Arg::with_name("workers")
                 .short("z")
                 .long("workers")
                 .value_name("N")
                 .default_value("1")
                 .help("Number of worker threads"),
-        )
-        .arg(
+        ).arg(
             Arg::with_name("host_file")
                 .short("h")
                 .long("hosts")
                 .takes_value(true)
                 .requires("process_id")
                 .help("File with IP:PORT of processes in timely cluster."),
-        )
-        .arg(
+        ).arg(
             Arg::with_name("process_id")
                 .short("p")
                 .long("process")
                 .takes_value(true)
                 .requires("host_file")
                 .help("Process ID in timely cluster."),
-        )
-        .get_matches();
+        ).get_matches();
 
     let narticles = value_t_or_exit!(args, "narticles", usize);
     let bsize = value_t_or_exit!(args, "batch_size", usize);
@@ -217,22 +202,14 @@ fn main() {
     let runtime = value_t_or_exit!(args, "runtime", u64);
     let workers = value_t_or_exit!(args, "workers", usize);
     let host_file = args.value_of("host_file");
-    let process_id = args.value_of("process_id")
+    let process_id = args
+        .value_of("process_id")
         .map(|s| usize::from_str(s).unwrap());
     let pinning = args.is_present("core-pin");
     let open_loop = args.is_present("open-loop");
 
     run_dataflow(
-        narticles,
-        bsize,
-        reads,
-        runtime,
-        workers,
-        host_file,
-        process_id,
-        pinning,
-        dist,
-        open_loop,
+        narticles, bsize, reads, runtime, workers, host_file, process_id, pinning, dist, open_loop,
     );
 }
 
@@ -295,7 +272,10 @@ fn run_dataflow(
 
             // capture artices and votes, restrict by query article ids.
             // let probe = articles.semijoin(&votes).semijoin(&reads).probe();
-            let probe = differential_dataflow::operators::arrange::query(&reads, articles.semijoin(&votes).arrange_by_key().trace).probe();
+            let probe = differential_dataflow::operators::arrange::query(
+                &reads,
+                articles.semijoin(&votes).arrange_by_key().trace,
+            ).probe();
 
             (articles_in, votes_in, reads_in, probe)
         });
@@ -325,7 +305,9 @@ fn run_dataflow(
             for aid in 0..articles {
                 // articles_in.insert((aid, format!("Article #{}", aid)));
                 let source = format!("Article #{}", aid);
-                let string = StringWrapper { string: istring::IString::from(&source[..]) };
+                let string = StringWrapper {
+                    string: istring::IString::from(&source[..]),
+                };
                 articles_in.insert((aid, string));
                 // articles_in.insert((aid, String::new()));
                 // articles_in.insert((aid, aid));
@@ -347,7 +329,6 @@ fn run_dataflow(
 
         let start = time::Instant::now();
         if !open_loop {
-
             println!("ClosedLoop; Batching: {:?}", batch);
 
             // now run the throughput measurement
@@ -364,7 +345,10 @@ fn run_dataflow(
                         votes_in.insert((writes[local_step % writes.len()], 0))
                     } else {
                         // reads_in.advance_to(logical_time);
-                        reads_in.send((reads[local_step % reads.len()], RootTimestamp::new(logical_time)));
+                        reads_in.send((
+                            reads[local_step % reads.len()],
+                            RootTimestamp::new(logical_time),
+                        ));
                         // reads_in.insert(reads[local_step % reads.len()]);
                         // reads_in.advance_to(logical_time + 1);
                         // reads_in.remove(reads[local_step % reads.len()]);
@@ -393,18 +377,15 @@ fn run_dataflow(
                         / (dur_to_ns!(start.elapsed()) / NANOS_PER_SEC as f64)
                 );
             }
-        }
-        else {
-
+        } else {
             println!("OpenLoop; OfferedLoad: {:?}", batch);
 
             let timer = ::std::time::Instant::now();
             let mut counts = vec![[0u64; 16]; 64];
 
-
             let requests_per_sec = batch;
             let ns_per_request = 1_000_000_000 / requests_per_sec;
-            let mut request_counter = peers + index;    // skip first request for each.
+            let mut request_counter = peers + index; // skip first request for each.
             let mut ack_counter = peers + index;
 
             let mut inserted_ns = 1;
@@ -412,20 +393,23 @@ fn run_dataflow(
             let ack_target = (runtime as usize) * requests_per_sec;
 
             while ack_counter < ack_target {
-            // while ((timer.elapsed().as_secs() as usize) * rate) < (10 * keys) {
+                // while ((timer.elapsed().as_secs() as usize) * rate) < (10 * keys) {
 
                 // Open-loop latency-throughput test, parameterized by offered rate `ns_per_request`.
                 let elapsed = timer.elapsed();
-                let elapsed_ns = elapsed.as_secs() * 1_000_000_000 + (elapsed.subsec_nanos() as u64);
+                let elapsed_ns =
+                    elapsed.as_secs() * 1_000_000_000 + (elapsed.subsec_nanos() as u64);
                 let elapsed_ns = elapsed_ns as usize;
 
                 // Determine completed ns.
                 let acknowledged_ns: usize = probe.with_frontier(|frontier| frontier[0].inner);
 
                 // any un-recorded measurements that are complete should be recorded.
-                while ((ack_counter * ns_per_request)) < acknowledged_ns && ack_counter < ack_target {
+                while (ack_counter * ns_per_request) < acknowledged_ns && ack_counter < ack_target {
                     let requested_at = ack_counter * ns_per_request;
-                    let count_index = (elapsed_ns - requested_at).next_power_of_two().trailing_zeros() as usize;
+                    let count_index = (elapsed_ns - requested_at)
+                        .next_power_of_two()
+                        .trailing_zeros() as usize;
                     if ack_counter > ack_target / 2 {
                         // counts[count_index] += 1;
                         let low_bits = ((elapsed_ns - requested_at) >> (count_index - 5)) & 0xF;
@@ -439,7 +423,6 @@ fn run_dataflow(
                 let target_ns = elapsed_ns & !((1 << 16) - 1);
 
                 if inserted_ns < target_ns {
-
                     while (request_counter * ns_per_request) < target_ns {
                         let logical_time = request_counter * ns_per_request;
                         let local_step = request_counter / peers;
@@ -448,7 +431,10 @@ fn run_dataflow(
                             votes_in.insert((writes[local_step % writes.len()], 0))
                         } else {
                             // reads_in.advance_to(logical_time);
-                            reads_in.send((reads[local_step % reads.len()], RootTimestamp::new(logical_time)));
+                            reads_in.send((
+                                reads[local_step % reads.len()],
+                                RootTimestamp::new(logical_time),
+                            ));
                             // reads_in.insert(reads[local_step % reads.len()]);
                             // reads_in.advance_to(logical_time + 1);
                             // reads_in.remove(reads[local_step % reads.len()]);
@@ -470,14 +456,13 @@ fn run_dataflow(
             }
 
             if index == 0 {
-
                 let mut results = Vec::new();
                 let total = counts.iter().map(|x| x.iter().sum::<u64>()).sum();
                 let mut sum = 0;
-                for index in (10 .. counts.len()).rev() {
-                    for sub in (0 .. 16).rev() {
+                for index in (10..counts.len()).rev() {
+                    for sub in (0..16).rev() {
                         if sum > 0 && sum < total {
-                            let latency = (1 << (index-1)) + (sub << (index-5));
+                            let latency = (1 << (index - 1)) + (sub << (index - 5));
                             let fraction = (sum as f64) / (total as f64);
                             results.push((latency, fraction));
                         }
