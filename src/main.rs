@@ -1,4 +1,4 @@
-extern crate abomonation;
+// extern crate abomonation;
 #[macro_use]
 extern crate clap;
 extern crate differential_dataflow;
@@ -8,9 +8,9 @@ extern crate slog;
 extern crate slog_term;
 extern crate timely;
 extern crate zipf;
-extern crate istring;
+// extern crate istring;
 
-use std::{fs, thread, time};
+use std::{fs, time};
 
 use rand::{Rng, SeedableRng, StdRng};
 
@@ -22,13 +22,13 @@ use differential_dataflow::operators::arrange::ArrangeByKey;
 use differential_dataflow::input::Input;
 use differential_dataflow::operators::*;
 
-use abomonation::Abomonation;
+// use abomonation::Abomonation;
 use zipf::ZipfDistribution;
 
-#[derive(Clone, Ord, PartialOrd, Eq, PartialEq, Debug)]
-struct StringWrapper {
-    pub string: istring::IString,
-}
+// #[derive(Clone, Ord, PartialOrd, Eq, PartialEq, Debug)]
+// struct StringWrapper {
+//     pub string: istring::IString,
+// }
 
 #[derive(Clone, Copy)]
 pub enum Distribution {
@@ -56,35 +56,35 @@ impl FromStr for Distribution {
     }
 }
 
-use std::io::Write;
-use std::io::Result as IOResult;
+// use std::io::Write;
+// use std::io::Result as IOResult;
 
-impl Abomonation for StringWrapper {
-    #[inline]
-    unsafe fn entomb<W: Write>(&self, write: &mut W) -> IOResult<()>{
-        if !self.string.is_inline() {
-            write.write_all(self.string.as_bytes())?;
-        }
-        Ok(())
-    }
-    #[inline]
-    unsafe fn exhume<'a, 'b>(&'a mut self, bytes: &'b mut [u8]) -> Option<&'b mut [u8]> {
-        if !self.string.is_inline() {
-            if self.string.len() > bytes.len() {
-                None
-            } else {
-                let (mine, rest) = bytes.split_at_mut(self.string.len());
-                std::ptr::write(
-                    ::std::mem::transmute(self.string.as_heap().ptr),
-                    mine.as_ptr(),
-                );
-                Some(rest)
-            }
-        } else {
-            Some(bytes)
-        }
-    }
-}
+// impl Abomonation for StringWrapper {
+//     #[inline]
+//     unsafe fn entomb<W: Write>(&self, write: &mut W) -> IOResult<()>{
+//         if !self.string.is_inline() {
+//             write.write_all(self.string.as_bytes())?;
+//         }
+//         Ok(())
+//     }
+//     #[inline]
+//     unsafe fn exhume<'a, 'b>(&'a mut self, bytes: &'b mut [u8]) -> Option<&'b mut [u8]> {
+//         if !self.string.is_inline() {
+//             if self.string.len() > bytes.len() {
+//                 None
+//             } else {
+//                 let (mine, rest) = bytes.split_at_mut(self.string.len());
+//                 std::ptr::write(
+//                     ::std::mem::transmute(self.string.as_heap().ptr),
+//                     mine.as_ptr(),
+//                 );
+//                 Some(rest)
+//             }
+//         } else {
+//             Some(bytes)
+//         }
+//     }
+// }
 
 const NANOS_PER_SEC: u64 = 1_000_000_000;
 macro_rules! dur_to_ns {
@@ -291,7 +291,7 @@ fn run_dataflow(
             // merge votes with articles, to ensure counts for un-voted articles.
             let votes = votes
                 .map(|(aid, _uid)| aid)
-                .concat(&articles.map(|(aid, _title): (usize, StringWrapper)| aid));
+                .concat(&articles.map(|(aid, _title): (usize, String)| aid));
 
             // capture artices and votes, restrict by query article ids.
             // let probe = articles.semijoin(&votes).semijoin(&reads).probe();
@@ -323,13 +323,7 @@ fn run_dataflow(
         // prepopulate articles
         if index == 0 {
             for aid in 0..articles {
-                // articles_in.insert((aid, format!("Article #{}", aid)));
-                let source = format!("Article #{}", aid);
-                let string = StringWrapper { string: istring::IString::from(&source[..]) };
-                articles_in.insert((aid, string));
-                // articles_in.insert((aid, String::new()));
-                // articles_in.insert((aid, aid));
-                // articles_in.insert((aid, ()));
+                articles_in.insert((aid, format!("Article #{}", aid)));
             }
         }
 
@@ -362,12 +356,9 @@ fn run_dataflow(
                     if local_step % (read_mix + 1) == 0 {
                         votes_in.advance_to(logical_time);
                         votes_in.insert((writes[local_step % writes.len()], 0))
-                    } else {
-                        // reads_in.advance_to(logical_time);
+                    }
+                    else {
                         reads_in.send((reads[local_step % reads.len()], RootTimestamp::new(logical_time)));
-                        // reads_in.insert(reads[local_step % reads.len()]);
-                        // reads_in.advance_to(logical_time + 1);
-                        // reads_in.remove(reads[local_step % reads.len()]);
                     }
                 }
 
@@ -412,7 +403,6 @@ fn run_dataflow(
             let ack_target = (runtime as usize) * requests_per_sec;
 
             while ack_counter < ack_target {
-            // while ((timer.elapsed().as_secs() as usize) * rate) < (10 * keys) {
 
                 // Open-loop latency-throughput test, parameterized by offered rate `ns_per_request`.
                 let elapsed = timer.elapsed();
@@ -427,16 +417,19 @@ fn run_dataflow(
                     let requested_at = ack_counter * ns_per_request;
                     let count_index = (elapsed_ns - requested_at).next_power_of_two().trailing_zeros() as usize;
                     if ack_counter > ack_target / 2 {
-                        // counts[count_index] += 1;
                         let low_bits = ((elapsed_ns - requested_at) >> (count_index - 5)) & 0xF;
                         counts[count_index][low_bits as usize] += 1;
                     }
                     ack_counter += peers;
                 }
 
-                // let target_ns = if acknowledged_ns >= inserted_ns { elapsed_ns } else { inserted_ns };
+                // let scale = (inserted_ns - acknowledged_ns).next_power_of_two();
+                // let target_ns = elapsed_ns & !(scale - 1);
 
-                let target_ns = elapsed_ns & !((1 << 16) - 1);
+                let target_ns = elapsed_ns;
+
+                // let target_ns = if acknowledged_ns >= inserted_ns { elapsed_ns } else { inserted_ns };
+                // let target_ns = elapsed_ns & !((1 << 16) - 1);
 
                 if inserted_ns < target_ns {
 
@@ -446,23 +439,16 @@ fn run_dataflow(
                         if local_step % (read_mix + 1) == 0 {
                             votes_in.advance_to(logical_time);
                             votes_in.insert((writes[local_step % writes.len()], 0))
-                        } else {
-                            // reads_in.advance_to(logical_time);
-                            reads_in.send((reads[local_step % reads.len()], RootTimestamp::new(logical_time)));
-                            // reads_in.insert(reads[local_step % reads.len()]);
-                            // reads_in.advance_to(logical_time + 1);
-                            // reads_in.remove(reads[local_step % reads.len()]);
                         }
-
-                        // }
-                        // input.advance_to((request_counter * ns_per_request) as u64);
-                        // input.insert((rng1.gen_range(0, keys),()));
-                        // input.remove((rng2.gen_range(0, keys),()));
+                        else {
+                            reads_in.send((reads[local_step % reads.len()], RootTimestamp::new(logical_time)));
+                        }
                         request_counter += peers;
                     }
                     votes_in.advance_to(target_ns);
                     votes_in.flush();
                     reads_in.advance_to(target_ns);
+                    // reads_in.flush();
                     inserted_ns = target_ns;
                 }
 
@@ -487,10 +473,10 @@ fn run_dataflow(
 
                 println!(
                     "processed {} events in {}s over {} peers => {}",
-                    total * peers as u64,
+                    2 * total * peers as u64,
                     dur_to_ns!(start.elapsed()) as f64 / NANOS_PER_SEC as f64,
                     peers,
-                    (total * peers as u64) as f64
+                    (2 * total * peers as u64) as f64
                         / (dur_to_ns!(start.elapsed()) / NANOS_PER_SEC as f64)
                 );
 
@@ -500,8 +486,6 @@ fn run_dataflow(
             }
         }
     }).unwrap();
-
-    thread::sleep(time::Duration::from_secs(30));
 
     println!("Done");
 }
