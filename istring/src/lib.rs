@@ -28,30 +28,30 @@ on 64bit machines: size_of::<IString>() == 24 bytes, inline capacity: 23 bytes
 
 extern crate alloc;
 
-use core::{fmt, slice, str, convert, mem, cmp, ptr};
-use core::ptr::copy_nonoverlapping;
-use core::clone::Clone;
-use core::iter::{FromIterator, IntoIterator, Extend};
-use core::ops::{self, Index, Add, AddAssign};
-use core::hash;
-use core::ptr::NonNull;
-use core::borrow::Borrow;
-use alloc::vec::Vec;
-use alloc::borrow::Cow;
-use alloc::string::{String, FromUtf8Error};
 use alloc::alloc::{Alloc, Global, Layout};
+use alloc::borrow::Cow;
+use alloc::string::{FromUtf8Error, String};
+use alloc::vec::Vec;
+use core::borrow::Borrow;
+use core::clone::Clone;
+use core::hash;
+use core::iter::{Extend, FromIterator, IntoIterator};
+use core::ops::{self, Add, AddAssign, Index};
+use core::ptr::copy_nonoverlapping;
+use core::ptr::NonNull;
+use core::{cmp, convert, fmt, mem, ptr, slice, str};
 
 const IS_INLINE: u8 = 1 << 7;
 const LEN_MASK: u8 = !IS_INLINE;
 
-#[cfg(target_pointer_width="64")]
+#[cfg(target_pointer_width = "64")]
 const INLINE_CAPACITY: usize = 23;
-#[cfg(target_pointer_width="32")]
+#[cfg(target_pointer_width = "32")]
 const INLINE_CAPACITY: usize = 11;
 
-#[cfg(target_pointer_width="64")]
+#[cfg(target_pointer_width = "64")]
 const MAX_CAPACITY: usize = (1 << 63) - 1;
-#[cfg(target_pointer_width="32")]
+#[cfg(target_pointer_width = "32")]
 const MAX_CAPACITY: usize = (1 << 31) - 1;
 
 // use the MSG of heap.len to encode the variant
@@ -60,52 +60,57 @@ const MAX_CAPACITY: usize = (1 << 31) - 1;
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub struct Inline {
-    pub data:   [u8; INLINE_CAPACITY],
-    pub len:    u8
+    pub data: [u8; INLINE_CAPACITY],
+    pub len: u8,
 }
 #[cfg(target_endian = "little")]
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub struct Heap {
-    pub ptr:    NonNull<u8>,
-    pub cap:    usize,
-    pub len:    usize
+    pub ptr: NonNull<u8>,
+    pub cap: usize,
+    pub len: usize,
 }
 
 #[cfg(target_endian = "big")]
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub struct Inline {
-    pub len:    u8,
-    pub data:   [u8; INLINE_CAPACITY],
+    pub len: u8,
+    pub data: [u8; INLINE_CAPACITY],
 }
 
 #[cfg(target_endian = "big")]
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub struct Heap {
-    pub len:    usize,
-    pub ptr:    NonNull<u8>,
-    pub cap:    usize
+    pub len: usize,
+    pub ptr: NonNull<u8>,
+    pub cap: usize,
 }
 
 pub enum InlineOrHeap {
     Inline(Inline),
-    Heap(Heap)
+    Heap(Heap),
 }
 
 pub union IStringUnion {
     inline: Inline,
-    heap:   Heap
+    heap: Heap,
 }
-pub struct IString<A: Alloc=Global> {
+pub struct IString<A: Alloc = Global> {
     union: IStringUnion,
-    alloc: A
+    alloc: A,
 }
 
 #[test]
 fn test_layout() {
-    let s = IStringUnion { inline: Inline { data: [0; INLINE_CAPACITY], len: IS_INLINE } };
+    let s = IStringUnion {
+        inline: Inline {
+            data: [0; INLINE_CAPACITY],
+            len: IS_INLINE,
+        },
+    };
     let heap = unsafe { s.heap };
     assert_eq!(heap.len, MAX_CAPACITY + 1);
 }
@@ -121,43 +126,50 @@ impl IString {
     }
 }
 unsafe impl<A: Send + Alloc> Send for IString<A> {}
-    
+
 impl<A: Alloc> IString<A> {
     #[inline(always)]
     pub fn new_in(a: A) -> IString<A> {
         IString {
             union: IStringUnion {
-                inline: Inline { data: [0; INLINE_CAPACITY], len: IS_INLINE },
+                inline: Inline {
+                    data: [0; INLINE_CAPACITY],
+                    len: IS_INLINE,
+                },
             },
-            alloc: a
+            alloc: a,
         }
     }
     #[inline]
     pub fn with_capacity_in(capacity: usize, mut a: A) -> IString<A> {
         assert!(capacity < MAX_CAPACITY);
-        
+
         if capacity > INLINE_CAPACITY {
-            IString{
+            IString {
                 union: unsafe {
-                    let ptr = a.alloc(Layout::from_size_align_unchecked(capacity, 1))
+                    let ptr = a
+                        .alloc(Layout::from_size_align_unchecked(capacity, 1))
                         .expect("failed to allocate memory")
                         .cast();
                     IStringUnion {
                         heap: Heap {
                             ptr: ptr,
                             len: 0,
-                            cap: capacity
-                        }
+                            cap: capacity,
+                        },
                     }
                 },
-                alloc: a
+                alloc: a,
             }
         } else {
             IString {
                 union: IStringUnion {
-                    inline: Inline { data: [0; INLINE_CAPACITY], len: IS_INLINE }
+                    inline: Inline {
+                        data: [0; INLINE_CAPACITY],
+                        len: IS_INLINE,
+                    },
                 },
-                alloc: a
+                alloc: a,
             }
         }
     }
@@ -181,15 +193,13 @@ impl<A: Alloc> IString<A> {
     }
 
     //#[inline]
-    //pub fn as_inline_or_heap(self) 
-    
+    //pub fn as_inline_or_heap(self)
+
     #[inline(always)]
     pub fn is_inline(&self) -> bool {
-        unsafe {
-            (self.union.inline.len & IS_INLINE) != 0
-        }
+        unsafe { (self.union.inline.len & IS_INLINE) != 0 }
     }
-    
+
     #[inline(always)]
     pub fn len(&self) -> usize {
         unsafe {
@@ -209,7 +219,7 @@ impl<A: Alloc> IString<A> {
             self.union.heap.len = new_len;
         }
     }
-    
+
     #[inline(always)]
     pub fn capacity(&self) -> usize {
         if self.is_inline() {
@@ -218,7 +228,7 @@ impl<A: Alloc> IString<A> {
             unsafe { self.union.heap.cap }
         }
     }
-    
+
     /// un-inline the string and expand the capacity to `cap`.
     ///
     /// does nothing if it isn't inlined.
@@ -227,20 +237,19 @@ impl<A: Alloc> IString<A> {
         if self.is_inline() {
             // keep check here. the heap-bit is known to be zero, which makes len() trivial
             assert!(cap >= self.len());
-            
+
             unsafe {
                 let len = self.len();
-                let ptr = Global.alloc(Layout::from_size_align_unchecked(cap, 1)).unwrap().cast();
+                let ptr = Global
+                    .alloc(Layout::from_size_align_unchecked(cap, 1))
+                    .unwrap()
+                    .cast();
                 copy_nonoverlapping(self.union.inline.data.as_ptr(), ptr.as_ptr(), len);
-                self.union.heap = Heap {
-                    ptr: ptr,
-                    len,
-                    cap
-                };
+                self.union.heap = Heap { ptr: ptr, len, cap };
             }
         }
     }
-    
+
     /// if the strings fits inline, make it inline,
     /// otherwhise shrink the capacity to the `self.len()`.
     pub fn shrink(&mut self) {
@@ -256,39 +265,40 @@ impl<A: Alloc> IString<A> {
             self.resize(len);
         }
     }
-    
+
     #[inline(always)]
     pub fn as_bytes(&self) -> &[u8] {
         let len = self.len();
         unsafe {
             if self.is_inline() {
-                &self.union.inline.data[.. len]
+                &self.union.inline.data[..len]
             } else {
                 slice::from_raw_parts(self.union.heap.ptr.as_ptr(), len)
             }
         }
     }
-    
+
     #[inline(always)]
     unsafe fn as_bytes_mut(&mut self) -> &mut [u8] {
         let len = self.len();
         if self.is_inline() {
-            &mut self.union.inline.data[.. len]
+            &mut self.union.inline.data[..len]
         } else {
             slice::from_raw_parts_mut(self.union.heap.ptr.as_ptr(), len)
         }
     }
-    
+
     fn resize(&mut self, new_cap: usize) {
         assert_eq!(self.is_inline(), false);
         assert!(new_cap >= self.len());
-        
+
         unsafe {
-            let ptr = Global.realloc(
-                self.union.heap.ptr,
-                Layout::from_size_align_unchecked(self.union.heap.cap, 1),
-                new_cap
-            ).expect("reallocation failed");
+            let ptr = Global
+                .realloc(
+                    self.union.heap.ptr,
+                    Layout::from_size_align_unchecked(self.union.heap.cap, 1),
+                    new_cap,
+                ).expect("reallocation failed");
             self.union.heap.ptr = ptr.cast();
             self.union.heap.cap = new_cap;
         }
@@ -312,36 +322,32 @@ impl<A: Alloc> IString<A> {
             self.as_bytes_mut()[old_len..new_len].copy_from_slice(s.as_bytes());
         }
     }
-    
+
     #[inline(always)]
     pub fn from_utf8(vec: Vec<u8>) -> Result<IString, FromUtf8Error> {
         String::from_utf8(vec).map(IString::from)
     }
-    
+
     #[inline(always)]
     pub unsafe fn from_raw_parts(buf: *mut u8, length: usize, capacity: usize) -> IString {
         String::from_raw_parts(buf, length, capacity).into()
     }
-    
+
     #[inline(always)]
     pub unsafe fn from_utf8_unchecked(bytes: Vec<u8>) -> String {
         String::from_utf8_unchecked(bytes).into()
     }
-        
+
     #[inline(always)]
     pub fn as_str(&self) -> &str {
-        unsafe {
-            str::from_utf8_unchecked(self.as_bytes())
-        }
+        unsafe { str::from_utf8_unchecked(self.as_bytes()) }
     }
-    
+
     #[inline(always)]
     pub fn as_mut_str(&mut self) -> &mut str {
-        unsafe {
-            str::from_utf8_unchecked_mut(self.as_bytes_mut())
-        }
+        unsafe { str::from_utf8_unchecked_mut(self.as_bytes_mut()) }
     }
- 
+
     #[inline]
     pub fn reserve(&mut self, additional: usize) {
         let new_cap = self.capacity() + additional;
@@ -353,7 +359,7 @@ impl<A: Alloc> IString<A> {
             self.resize(new_cap);
         }
     }
-    
+
     #[inline]
     pub fn reserve_exact(&mut self, additional: usize) {
         let new_cap = self.capacity() + additional;
@@ -363,13 +369,13 @@ impl<A: Alloc> IString<A> {
             self.resize(new_cap);
         }
     }
-    
+
     #[inline]
     pub fn push(&mut self, ch: char) {
         let mut buf = [0; 4];
         self.push_str(ch.encode_utf8(&mut buf));
     }
-    
+
     #[inline]
     pub fn truncate(&mut self, new_len: usize) {
         if new_len < self.len() {
@@ -388,11 +394,11 @@ impl<A: Alloc> IString<A> {
             let heap = self.union.heap;
             let alloc = ptr::read(&self.alloc);
             mem::forget(self);
-            
+
             (heap, alloc)
         }
     }
-    
+
     /// Deconstruct into the Inline part and the allocator
     ///
     /// Assumes the string is inlined and panics otherwhise.
@@ -403,7 +409,7 @@ impl<A: Alloc> IString<A> {
             let mut inline = self.union.inline;
             let alloc = ptr::read(&self.alloc);
             mem::forget(self);
-            
+
             inline.len &= !IS_INLINE; // clear the bit
             (inline, alloc)
         }
@@ -411,14 +417,17 @@ impl<A: Alloc> IString<A> {
     pub unsafe fn from_heap(heap: Heap, alloc: A) -> Self {
         let union = IStringUnion { heap: heap };
         assert_eq!(union.inline.len & IS_INLINE, 0);
-        IString { union: union, alloc: alloc }
+        IString {
+            union: union,
+            alloc: alloc,
+        }
     }
     pub unsafe fn from_inline(mut inline: Inline, alloc: A) -> Self {
         assert!(inline.len as usize <= INLINE_CAPACITY);
         inline.len |= IS_INLINE; // set inline bit
         IString {
             union: IStringUnion { inline: inline },
-            alloc: alloc
+            alloc: alloc,
         }
     }
 }
@@ -427,12 +436,15 @@ impl<A: Alloc> Drop for IString<A> {
     fn drop(&mut self) {
         if !self.is_inline() {
             unsafe {
-                Global.dealloc(self.union.heap.ptr, Layout::from_size_align_unchecked(self.union.heap.cap, 1));
+                Global.dealloc(
+                    self.union.heap.ptr,
+                    Layout::from_size_align_unchecked(self.union.heap.cap, 1),
+                );
             }
         }
     }
 }
-impl IString {        
+impl IString {
     #[inline(always)]
     pub fn into_bytes(self) -> Vec<u8> {
         let s: String = self.into();
@@ -441,7 +453,7 @@ impl IString {
 }
 impl<A: Alloc> ops::Deref for IString<A> {
     type Target = str;
-    
+
     #[inline(always)]
     fn deref(&self) -> &str {
         self.as_str()
@@ -473,14 +485,14 @@ impl convert::From<String> for IString {
         let mut s = s.into_bytes();
         let istring = if s.capacity() != 0 {
             let heap = Heap {
-                ptr:    NonNull::new(s.as_mut_ptr()).unwrap(),
-                len:    s.len(),
-                cap:    s.capacity()
+                ptr: NonNull::new(s.as_mut_ptr()).unwrap(),
+                len: s.len(),
+                cap: s.capacity(),
             };
 
             IString {
                 union: IStringUnion { heap: heap },
-                alloc: Global
+                alloc: Global,
             }
         } else {
             IString::new()
@@ -497,9 +509,13 @@ impl convert::Into<String> for IString {
             let len = self.len();
             self.move_to_heap(len);
         }
-        
+
         unsafe {
-            let s = String::from_raw_parts(self.union.heap.ptr.as_ptr(), self.union.heap.len, self.union.heap.cap);
+            let s = String::from_raw_parts(
+                self.union.heap.ptr.as_ptr(),
+                self.union.heap.len,
+                self.union.heap.cap,
+            );
 
             // the IString must not drop
             mem::forget(self);
@@ -508,14 +524,16 @@ impl convert::Into<String> for IString {
     }
 }
 
-impl<A: Alloc+Clone> Clone for IString<A> {
+impl<A: Alloc + Clone> Clone for IString<A> {
     #[inline]
     fn clone(&self) -> IString<A> {
         if self.is_inline() {
             // simple case
             IString {
-                union: IStringUnion { inline: unsafe { self.union.inline } },
-                alloc: self.alloc.clone()
+                union: IStringUnion {
+                    inline: unsafe { self.union.inline },
+                },
+                alloc: self.alloc.clone(),
             }
         } else {
             let mut s = IString::with_capacity_in(self.len(), self.alloc.clone());
@@ -524,7 +542,6 @@ impl<A: Alloc+Clone> Clone for IString<A> {
         }
     }
 }
-
 
 impl<A: Alloc> PartialEq<str> for IString<A> {
     #[inline(always)]
@@ -707,14 +724,20 @@ impl<A: Alloc> Borrow<str> for IString<A> {
 }
 
 impl FromIterator<char> for IString {
-    fn from_iter<T>(iter: T) -> Self where T: IntoIterator<Item=char> {
+    fn from_iter<T>(iter: T) -> Self
+    where
+        T: IntoIterator<Item = char>,
+    {
         let mut s = IString::new();
         s.extend(iter);
         s
     }
 }
 impl<'a> FromIterator<&'a str> for IString {
-    fn from_iter<T>(iter: T) -> Self where T: IntoIterator<Item=&'a str> {
+    fn from_iter<T>(iter: T) -> Self
+    where
+        T: IntoIterator<Item = &'a str>,
+    {
         let mut s = IString::new();
         s.extend(iter);
         s
