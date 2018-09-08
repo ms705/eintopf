@@ -1,6 +1,7 @@
 // extern crate abomonation;
 #[macro_use]
 extern crate clap;
+extern crate core_affinity;
 extern crate differential_dataflow;
 extern crate nix;
 extern crate rand;
@@ -236,17 +237,17 @@ fn main() {
     );
 }
 
-#[cfg(target_os = "linux")]
-fn pin_to_core(index: usize, stride: usize) {
-    let mut cpu_set = ::nix::sched::CpuSet::new();
-    let tgt_cpu = index * stride;
-    cpu_set.set(tgt_cpu).unwrap();
-    ::nix::sched::sched_setaffinity(::nix::unistd::Pid::from_raw(0), &cpu_set).unwrap()
-}
-#[cfg(not(target_os = "linux"))]
-fn pin_to_core(_index: usize, _stride: usize) {
-    println!("core pinning: not linux");
-}
+// #[cfg(target_os = "linux")]
+// fn pin_to_core(index: usize, stride: usize) {
+//     let mut cpu_set = ::nix::sched::CpuSet::new();
+//     let tgt_cpu = index * stride;
+//     cpu_set.set(tgt_cpu).unwrap();
+//     ::nix::sched::sched_setaffinity(::nix::unistd::Pid::from_raw(0), &cpu_set).unwrap()
+// }
+// #[cfg(not(target_os = "linux"))]
+// fn pin_to_core(_index: usize, _stride: usize) {
+//     println!("core pinning: not linux");
+// }
 
 fn run_dataflow(
     articles: usize,
@@ -277,7 +278,9 @@ fn run_dataflow(
         let peers = worker.peers();
 
         if pinning {
-            pin_to_core(index, 1);
+            // pin_to_core(index, 1);
+            let core_ids = core_affinity::get_core_ids().unwrap();
+            core_affinity::set_for_current(core_ids[index % core_ids.len()]);
         }
 
         // create a a degree counting differential dataflow
