@@ -335,7 +335,7 @@ fn run_dataflow(
         votes_in.advance_to(1);
         votes_in.flush();
         reads_in.advance_to(1);
-        // reads_in.flush();
+        reads_in.flush();
         worker.step_while(|| probe.less_than(votes_in.time()));
 
         if index == 0 {
