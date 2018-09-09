@@ -15,11 +15,11 @@ use std::{fs, time};
 
 use rand::{Rng, SeedableRng, StdRng};
 
-use timely::dataflow::operators::Probe;
-use timely::dataflow::operators::Input as TimelyInput;
-use timely::progress::timestamp::RootTimestamp;
+// use timely::dataflow::operators::Probe;
+// use timely::dataflow::operators::Input as TimelyInput;
+// use timely::progress::timestamp::RootTimestamp;
 
-use differential_dataflow::operators::arrange::ArrangeByKey;
+// use differential_dataflow::operators::arrange::ArrangeByKey;
 use differential_dataflow::input::Input;
 use differential_dataflow::operators::*;
 
@@ -286,8 +286,8 @@ fn run_dataflow(
         // create a a degree counting differential dataflow
         let (mut articles_in, mut votes_in, mut reads_in, probe) = worker.dataflow(|scope| {
             // create input for read request.
-            // let (reads_in, reads) = scope.new_collection();
-            let (reads_in, reads) = scope.new_input();
+            let (reads_in, reads) = scope.new_collection();
+            // let (reads_in, reads) = scope.new_input();
             let (articles_in, articles) = scope.new_collection();
             let (votes_in, votes) = scope.new_collection();
 
@@ -297,8 +297,8 @@ fn run_dataflow(
                 .concat(&articles.map(|(aid, _title): (usize, String)| aid));
 
             // capture artices and votes, restrict by query article ids.
-            // let probe = articles.semijoin(&votes).semijoin(&reads).probe();
-            let probe = differential_dataflow::operators::arrange::query(&reads, articles.semijoin(&votes).arrange_by_key().trace).probe();
+            let probe = articles.semijoin(&votes).semijoin(&reads).probe();
+            // let probe = differential_dataflow::operators::arrange::query(&reads, articles.semijoin(&votes).arrange_by_key().trace).probe();
 
             (articles_in, votes_in, reads_in, probe)
         });
@@ -361,7 +361,11 @@ fn run_dataflow(
                         votes_in.insert((writes[local_step % writes.len()], 0))
                     }
                     else {
-                        reads_in.send((reads[local_step % reads.len()], RootTimestamp::new(logical_time)));
+                        // reads_in.send((reads[local_step % reads.len()], RootTimestamp::new(logical_time)));
+                        reads_in.advance_to(logical_time);
+                        reads_in.insert(reads[local_step % writes.len()]);
+                        reads_in.advance_to(logical_time + 1);
+                        reads_in.remove(reads[local_step % writes.len()]);
                     }
                 }
 
@@ -370,7 +374,7 @@ fn run_dataflow(
                 votes_in.advance_to(round * batch * peers);
                 votes_in.flush();
                 reads_in.advance_to(round * batch * peers);
-                // reads_in.flush();
+                reads_in.flush();
                 worker.step_while(|| probe.less_than(votes_in.time()));
             }
 
@@ -426,13 +430,18 @@ fn run_dataflow(
                     ack_counter += peers;
                 }
 
-                // let scale = (inserted_ns - acknowledged_ns).next_power_of_two();
-                // let target_ns = elapsed_ns & !(scale - 1);
+                // Approach 0: use geometrically sized windows.
+                let scale = (inserted_ns - acknowledged_ns).next_power_of_two();
+                let target_ns = elapsed_ns & !(scale - 1);
 
-                let target_ns = elapsed_ns;
+                // Approach 1: go as fast as possible.
+                // let target_ns = elapsed_ns;
 
+                // Approach 2: stall input until last submission is complete.
                 // let target_ns = if acknowledged_ns >= inserted_ns { elapsed_ns } else { inserted_ns };
-                // let target_ns = elapsed_ns & !((1 << 16) - 1);
+
+                // Approach 3: tick at most every so often (~1ms here).
+                // let target_ns = elapsed_ns & !((1 << 20) - 1);
 
                 if inserted_ns < target_ns {
 
@@ -444,14 +453,18 @@ fn run_dataflow(
                             votes_in.insert((writes[local_step % writes.len()], 0))
                         }
                         else {
-                            reads_in.send((reads[local_step % reads.len()], RootTimestamp::new(logical_time)));
+                            // reads_in.send((reads[local_step % reads.len()], RootTimestamp::new(logical_time)));
+                            reads_in.advance_to(logical_time);
+                            reads_in.insert(reads[local_step % writes.len()]);
+                            reads_in.advance_to(logical_time + 1);
+                            reads_in.remove(reads[local_step % writes.len()]);
                         }
                         request_counter += peers;
                     }
                     votes_in.advance_to(target_ns);
                     votes_in.flush();
                     reads_in.advance_to(target_ns);
-                    // reads_in.flush();
+                    reads_in.flush();
                     inserted_ns = target_ns;
                 }
 
