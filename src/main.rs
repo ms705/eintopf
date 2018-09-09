@@ -274,6 +274,8 @@ fn run_dataflow(
 
     // set up the dataflow
     timely::execute(tc, move |worker| {
+
+        let timer = time::Instant::now();
         let index = worker.index();
         let peers = worker.peers();
 
@@ -321,13 +323,11 @@ fn run_dataflow(
         let writes: Vec<_> = get_random();
         let reads: Vec<_> = get_random();
 
-        let timer = time::Instant::now();
-
         // prepopulate articles
-        if index == 0 {
-            for aid in 0..articles {
-                articles_in.insert((aid, format!("Article #{}", aid)));
-            }
+        let mut aid = index;
+        while aid < articles {
+            articles_in.insert((aid, format!("Article #{}", aid)));
+            aid += peers;
         }
 
         // we're done adding articles
