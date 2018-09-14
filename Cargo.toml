@@ -11,14 +11,12 @@ abomonation= { git = "https://github.com/frankmcsherry/abomonation" }
 #istring = { path = "istring" }
 nix="*"
 clap = "2.13"
-differential-dataflow = { git = "https://github.com/frankmcsherry/differential-dataflow.git" }
-#differential-dataflow = { path = "../differential-dataflow" }
+#differential-dataflow = { git = "https://github.com/frankmcsherry/differential-dataflow.git", branch = "logging" }
+differential-dataflow = { path = "../differential-dataflow" }
 slog = "1.5.2"
-#slog = { version = "1.5.2", features = ["max_level_trace", "release_max_level_debug"] }
 slog-term = "1.5.0"
-#time = "0.1"
-timely = { git = "https://github.com/frankmcsherry/timely-dataflow.git" }
-#timely = "0.5.1"
+timely = { git = "https://github.com/frankmcsherry/timely-dataflow.git", branch = "logging_revamp" }
+#timely = { path = "../timely-dataflow" }
 rand="0.3.13"
 zipf = "1.0.0"
 
