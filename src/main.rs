@@ -20,7 +20,7 @@ use std::{fs, time};
 
 use rand::{Rng, SeedableRng, StdRng};
 
-use timely::dataflow::operators::Probe;
+use timely::dataflow::operators::{Probe, Inspect};
 use timely::dataflow::operators::Input as TimelyInput;
 use timely::progress::timestamp::RootTimestamp;
 
@@ -308,7 +308,13 @@ fn run_dataflow(
 
             // capture artices and votes, restrict by query article ids.
             // let probe = articles.semijoin(&votes).semijoin(&reads).probe();
-            let probe = articles.semijoin(&votes).arrange_by_key().lookup(&reads).probe();
+            let probe =
+            articles
+                .semijoin(&votes)
+                .arrange_by_key()
+                .lookup(&reads)
+                // .inspect(|x| println!("{:?}", x))
+                .probe();
 
             (articles_in, votes_in, reads_in, probe)
         });
